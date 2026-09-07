@@ -18,22 +18,22 @@ export async function GET() {
 
     const $ = cheerio.load(html);
 
-    // Diagnostica: raccoglie tutti gli h1, h2, h3, h4 e le prime classi principali della pagina
     const titoli: string[] = [];
     $('h1, h2, h3, h4, .title').each((_, el) => {
       const txt = $(el).text().trim();
       if (txt) titoli.push(txt);
     });
 
-    // Raccoglie i primi elementi che contengono nomi di squadre conosciute
     const squadreTrovate: string[] = [];
     const SQUADRE = ['INTER', 'MILAN', 'JUVENTUS', 'NAPOLI', 'ROMA', 'LAZIO', 'ATALANTA', 'GENOA'];
-    
+
     $('*').each((_, el) => {
       const text = $(el).text().toUpperCase();
       SQUADRE.forEach((sq) => {
         if (text.includes(sq) && $(el).children().length === 0) {
-          squadreTrovate.push(`Tag: ${el.tagName}, Class: ${$(el).attr('class') || 'nessuna'}, Testo: ${$(el).text().trim()}`);
+          squadreTrovate.push(
+            `Tag: ${el.tagName}, Class: ${$(el).attr('class') || 'nessuna'}, Testo: ${$(el).text().trim()}`
+          );
         }
       });
     });
