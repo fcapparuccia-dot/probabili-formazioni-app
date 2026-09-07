@@ -16,91 +16,107 @@ const SQUADRE_SERIE_A = [
   'NAPOLI', 'PARMA', 'ROMA', 'TORINO', 'UDINESE', 'VENEZIA', 'VERONA', 'SASSUOLO'
 ];
 
-const FRASI_DA_EVITARE = [
-  'NESSUNA NOTIZIA', 'DUBBIO', 'INFORTUNIO', 'OUT', 'NOIE FISICHE',
-  'CONTRO IL', 'RIENTRO', 'SQUALIFICATO', 'RISENTIMENTO', 'LESIONE',
-  'DISTORSIONE', 'AFFATICAMENTO', 'PROBLEMA', 'OPERAZIONE', 'PANCHINA', 'BALLOTTAGGIO'
-];
-
 export async function GET() {
   try {
-    const url = 'https://www.fantacalcio.it/probabili-formazioni-serie-a';
-    const { data: html } = await axios.get(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'it-IT,it;q=0.9',
-      },
-      timeout: 10000,
-    });
-
-    const $ = cheerio.load(html);
     const giocatoriMappati: GiocatoreMappato[] = [];
     const visti = new Set<string>();
 
-    // STRATEGIA UNIVERSALE:
-    // Troviamo direttamente tutti i link ai giocatori nella pagina
-    $('a[href*="/giocatori/"]').each((_, playerEl) => {
-      const rawText = $(playerEl).text().trim();
-      if (!rawText) return;
+    // STRATEGIA 1: Tenta di scaricare tramite API/JSON di Fantacalcio o endpoint mobile
+    try {
+      const response = await axios.get('https://www.fantacalcio.it/api/v1/probabili-formazioni', {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+          'Accept': 'application/json, text/plain, */*',
+        },
+        timeout: 8000,
+      });
 
-      let nomePulito = rawText
-        .split('\n')[0]
-        .replace(/^[PDCAR]\s+/i, '')
-        .replace(/\d+%/g, '')
-        .replace(/[\n\r\t]+/g, '')
-        .trim();
+      if (response.data && Array.isArray(response.data)) {
+        for (const match of response.data) {
+          const homeTeam = match.home_team_name?.toUpperCase() || '';
+          const awayTeam = match.away_team_name?.toUpperCase() || '';
 
-      const nomeUpper = nomePulito.toUpperCase();
-      const eInfortunioONota = FRASI_DA_EVITARE.some((frase) => nomeUpper.includes(frase));
+          if (match.home_lineup && Array.isArray(match.home_lineup)) {
+            for (const p of match.home_lineup) {
+              if (p.name && homeTeam) {
+                const key = `${p.name}-${homeTeam}`;
+                if (!visti.has(key)) {
+                  visti.add(key);
+                  giocatoriMappati.push({ nome: p.name, squadra: homeTeam });
+                }
+              }
+            }
+          }
 
-      if (
-        !nomePulito ||
-        nomePulito.length < 3 ||
-        nomePulito.length > 30 ||
-        eInfortunioONota ||
-        nomePulito.includes('VS') ||
-        /^\d[-\d]+\d$/.test(nomePulito) ||
-        SQUADRE_SERIE_A.includes(nomeUpper) ||
-        !isNaN(Number(nomePulito))
-      ) {
-        return;
-      }
-
-      // Troviamo la squadra associata risalendo al contenitore più vicino che ne menziona una
-      let squadraTrovata = '';
-      let parent = $(playerEl).parent();
-      
-      for (let i = 0; i < 6; i++) {
-        if (!parent || parent.length === 0) break;
-        
-        const parentText = parent.text().toUpperCase();
-        for (const sq of SQUADRE_SERIE_A) {
-          if (parentText.includes(sq)) {
-            squadraTrovata = sq;
-            break;
+          if (match.away_lineup && Array.isArray(match.away_lineup)) {
+            for (const p of match.away_lineup) {
+              if (p.name && awayTeam) {
+                const key = `${p.name}-${awayTeam}`;
+                if (!visti.has(key)) {
+                  visti.add(key);
+                  giocatoriMappati.push({ nome: p.name, squadra: awayTeam });
+                }
+              }
+            }
           }
         }
-        if (squadraTrovata) break;
-        parent = parent.parent();
       }
+    } catch {
+      // Se l'API diretta fallisce o richiede token, procede col fallback HTML esteso
+    }
 
-      // Default di sicurezza se il contenitore padre non ha la squadra esplicita
-      if (!squadraTrovata) {
-        squadraTrovata = 'GENOA'; 
-      }
+    // STRATEGIA 2: Fallback HTML con User-Agent di un browser reale desktop ed estrazione generica
+    if (giocatoriMappati.length === 0) {
+      const url = 'https://www.fantacalcio.it/probabili-formazioni-serie-a';
+      const { data: html } = await axios.get(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+          'Cache-Control': 'no-cache',
+        },
+        timeout: 10000,
+      });
 
-      const chiaveUnica = `${nomePulito}-${squadraTrovata}`;
-      if (!visti.has(chiaveUnica)) {
-        visti.add(chiaveUnica);
-        giocatoriMappati.push({ nome: nomePulito, squadra: squadraTrovata });
-      }
-    });
+      const $ = cheerio.load(html);
+
+      // Cerca qualsiasi blocco di testo contenente nomi di calciatori
+      $('*').each((_, el) => {
+        const text = $(el).text().trim();
+        // Cerca pattern tipo nomi calciatori (es. "3-5-2", ruoli, o blocchi con link)
+        if ($(el).children().length === 0 && text.length > 2 && text.length < 30) {
+          const parentText = $(el).parent().parent().text().toUpperCase();
+          const squadraTrovata = SQUADRE_SERIE_A.find((s) => parentText.includes(s));
+
+          if (squadraTrovata) {
+            let nomePulito = text
+              .replace(/^[PDCAR]\s+/i, '')
+              .replace(/\d+%/g, '')
+              .trim();
+
+            if (
+              nomePulito.length >= 3 &&
+              !nomePulito.includes('VS') &&
+              !/^\d[-\d]+\d$/.test(nomePulito) &&
+              !SQUADRE_SERIE_A.includes(nomePulito.toUpperCase()) &&
+              isNaN(Number(nomePulito))
+            ) {
+              const key = `${nomePulito}-${squadraTrovata}`;
+              if (!visti.has(key)) {
+                visti.add(key);
+                giocatoriMappati.push({ nome: nomePulito, squadra: squadraTrovata });
+              }
+            }
+          }
+        }
+      });
+    }
 
     if (giocatoriMappati.length === 0) {
       return NextResponse.json({
         success: false,
-        message: 'Impossibile estrarre le formazioni. Nessun link giocatore individuato.',
+        message: 'Blocco anti-bot o struttura HTML non accessibile da Vercel.',
       });
     }
 
