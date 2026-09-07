@@ -16,11 +16,10 @@ const SQUADRE_SERIE_A = [
   'NAPOLI', 'PARMA', 'ROMA', 'TORINO', 'UDINESE', 'VENEZIA', 'VERONA', 'SASSUOLO'
 ];
 
-// Parole chiave da scartare per evitare frasi di infortunio o note
 const FRASI_DA_EVITARE = [
   'NESSUNA NOTIZIA', 'DUBBIO', 'INFORTUNIO', 'OUT', 'NOIE FISICHE',
   'CONTRO IL', 'RIENTRO', 'SQUALIFICATO', 'RISENTIMENTO', 'LESIONE',
-  'DISTORSIONE', 'AFFATICAMENTO', 'PROBLEMA', 'OPERAZIONE', 'PANCHINA'
+  'DISTORSIONE', 'AFFATICAMENTO', 'PROBLEMA', 'OPERAZIONE', 'PANCHINA', 'BALLOTTAGGIO'
 ];
 
 export async function GET() {
@@ -39,51 +38,55 @@ export async function GET() {
     const giocatoriMappati: GiocatoreMappato[] = [];
     const visti = new Set<string>();
 
-    // Isoliamo ciascuna scheda partita
-    $('.card-match, .box-card, .card, [class*="match"]').each((_, matchCard) => {
-      // Troviamo i due blocchi squadra della partita
-      $(matchCard).find('[class*="team"], .box-legenda, .team-incart').each((_, teamBlock) => {
-        const testoSquadra = $(teamBlock)
-          .find('h3, h4, .team-name, .title, header, .name')
-          .text()
-          .toUpperCase();
-
-        const squadraUfficiale = SQUADRE_SERIE_A.find((s) => testoSquadra.includes(s));
-        if (!squadraUfficiale) return;
-
-        // Estraiamo solo i link o elementi di classe player (dove ci sono solo i nomi)
-        $(teamBlock).find('a[href*="/giocatori/"], .player-name, .player-item, [class*="player"]').each((_, p) => {
-          const rawText = $(p).text() || '';
-
-          let nomePulito = rawText
-            .split('\n')[0]
-            .replace(/^[PDCAR]\s+/i, '')
-            .replace(/\d+%/g, '')
-            .replace(/[\n\r\t]+/g, '')
-            .trim();
-
-          const nomeUpper = nomePulito.toUpperCase();
-
-          // Filtri di pulizia stringa
-          const eInfortunioONota = FRASI_DA_EVITARE.some((frase) => nomeUpper.includes(frase));
-
-          if (
-            nomePulito &&
-            nomePulito.length >= 3 &&
-            nomePulito.length <= 25 &&
-            !eInfortunioONota &&
-            !nomePulito.includes('VS') &&
-            !/^\d[-\d]+\d$/.test(nomePulito) &&
-            !SQUADRE_SERIE_A.includes(nomeUpper) &&
-            isNaN(Number(nomePulito))
-          ) {
-            const chiaveUnica = `${nomePulito}-${squadraUfficiale}`;
-            if (!visti.has(chiaveUnica)) {
-              visti.add(chiaveUnica);
-              giocatoriMappati.push({ nome: nomePulito, squadra: squadraUfficiale });
-            }
+    // Scansione per ogni blocco partita o contenitore principale
+    $('article, .card, .card-match, .match-card, div[class*="match"]').each((_, matchCard) => {
+      // Estraiamo le squadre presenti in questa partita
+      const squadreInPartita: string[] = [];
+      $(matchCard).find('h3, h4, .team-name, .squadra, .name, header').each((_, headerEl) => {
+        const text = $(headerEl).text().toUpperCase().trim();
+        SQUADRE_SERIE_A.forEach((sq) => {
+          if (text.includes(sq) && !squadreInPartita.includes(sq)) {
+            squadreInPartita.push(sq);
           }
         });
+      });
+
+      // Se non trova due squadre distinte, cerca su tutto il testo del blocco per abbinamento
+      if (squadreInPartita.length === 0) return;
+
+      // Estrazione mirata sui calciatori (link giocatore o elementi di formazione)
+      $(matchCard).find('a[href*="/giocatori/"], .player-name, .player-item, [class*="player"]').each((_, p) => {
+        const rawText = $(p).text() || '';
+
+        let nomePulito = rawText
+          .split('\n')[0]
+          .replace(/^[PDCAR]\s+/i, '')
+          .replace(/\d+%/g, '')
+          .replace(/[\n\r\t]+/g, '')
+          .trim();
+
+        const nomeUpper = nomePulito.toUpperCase();
+        const eInfortunioONota = FRASI_DA_EVITARE.some((frase) => nomeUpper.includes(frase));
+
+        // Determina la squadra corrente (usa la prima squadra trovata nel contesto se non specificata)
+        const squadraAssegnata = squadreInPartita[0];
+
+        if (
+          nomePulito &&
+          nomePulito.length >= 3 &&
+          nomePulito.length <= 25 &&
+          !eInfortunioONota &&
+          !nomePulito.includes('VS') &&
+          !/^\d[-\d]+\d$/.test(nomePulito) &&
+          !SQUADRE_SERIE_A.includes(nomeUpper) &&
+          isNaN(Number(nomePulito))
+        ) {
+          const chiaveUnica = `${nomePulito}-${squadraAssegnata}`;
+          if (!visti.has(chiaveUnica)) {
+            visti.add(chiaveUnica);
+            giocatoriMappati.push({ nome: nomePulito, squadra: squadraAssegnata });
+          }
+        }
       });
     });
 
@@ -133,7 +136,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      message: 'Sincronizzazione pulita completata!',
+      message: 'Sincronizzazione completata con successo!',
       totaleGiocatoriMappati: giocatoriMappati.length,
       campione: giocatoriMappati.slice(0, 10),
     });
