@@ -21,45 +21,46 @@ export async function GET() {
     const $ = cheerio.load(html);
     const giocatoriMappati: GiocatoreMappato[] = [];
 
-    // Scorriamo ogni singola partita/scheda del match
-    $('.match-card, .card-match, .box-partita').each((_, matchElement) => {
-      // Per ogni partita troviamo i due blocchi casa e trasferta
-      $(matchElement)
-        .find('.team-card, .box-squadra')
-        .each((_, teamElement) => {
-          // Estragga il nome della squadra dal blocco specifico
-          const nomeSquadra = $(teamElement)
-            .find('.team-name, .squadra-nome')
-            .text()
-            .trim()
-            .toUpperCase();
+    // Ogni partita è contenuta in un blocco con classe .card
+    $('.card').each((_, matchElement) => {
+      // Troviamo i blocchi squadra (casa e trasferta)
+      $(matchElement).find('.team').each((_, teamElement) => {
+        // Estragga il nome della squadra dal titolo del blocco
+        const nomeSquadra = $(teamElement)
+          .find('.team-name, .name, h3, header')
+          .first()
+          .text()
+          .trim()
+          .toUpperCase();
 
-          if (!nomeSquadra) return;
+        if (!nomeSquadra) return;
 
-          // Estragga SOLO i titolari contenuti DENTRO il blocco di questa squadra
-          $(teamElement)
-            .find('.player-name, .titola-item')
-            .each((_, playerElement) => {
-              const nomeGiocatore = $(playerElement).text().trim();
+        // Estragga i giocatori titolari presenti all'interno della singola squadra
+        $(teamElement).find('.player-item, .player, .titolarity-item').each((_, playerElement) => {
+          const nomeGiocatore = $(playerElement).find('.player-name, .name').text().trim() || $(playerElement).text().trim();
 
-              if (nomeGiocatore && nomeGiocatore.length > 2) {
-                giocatoriMappati.push({
-                  nome: nomeGiocatore,
-                  squadra: nomeSquadra,
-                });
-              }
+          // Pulizia del testo da ruoli o numeri
+          const nomePulito = nomeGiocatore.replace(/^[PDCAR]\s+/i, '').replace(/\d+/g, '').trim();
+
+          if (nomePulito && nomePulito.length > 2) {
+            giocatoriMappati.push({
+              nome: nomePulito,
+              squadra: nomeSquadra,
             });
+          }
         });
+      });
     });
 
-    // Se i selettori sopra non intercettano il layout esatto di Fantacalcio.it,
-    // usiamo la struttura generica basata sulle sezioni delle squadre:
+    // Fallback: ricerca diretta su tutti i contenitori di squadra della pagina
     if (giocatoriMappati.length === 0) {
-      $('.card-squadra, .single-team').each((_, teamBlock) => {
-        const squadra = $(teamBlock).find('h3, .title').text().trim().toUpperCase();
-        $(teamBlock).find('.player, .giocatore').each((_, p) => {
-          const nome = $(p).text().trim();
-          if (squadra && nome) {
+      $('[class*="team"]').each((_, teamBlock) => {
+        const squadra = $(teamBlock).find('h3, h4, .title, .team-name').first().text().trim().toUpperCase();
+        if (!squadra) return;
+
+        $(teamBlock).find('[class*="player"]').each((_, p) => {
+          const nome = $(p).text().trim().replace(/^[PDCAR]\s+/i, '').trim();
+          if (nome && nome.length > 2 && !nome.includes('VS')) {
             giocatoriMappati.push({ nome, squadra });
           }
         });
@@ -108,7 +109,7 @@ export async function GET() {
             .single();
           giocatoreDb = newGiocatore;
         } else {
-          // Aggiorna la squadra del giocatore se era errata nel DB
+          // Ri-allinea la squadra nel DB se era precedentemente errata
           await supabase
             .from('giocatori')
             .update({ squadra_id: squadraDb.id })
@@ -132,7 +133,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      message: 'Sincronizzazione completata con successo!',
+      message: 'Sincronizzazione da Fantacalcio.it completata con successo!',
       totaleGiocatoriMappati: giocatoriMappati.length,
       campione: giocatoriMappati.slice(0, 10),
     });
