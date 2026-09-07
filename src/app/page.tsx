@@ -22,7 +22,7 @@ export default function HomePage() {
   const [squadreMappa, setSquadreMappa] = useState<Record<string, GiocatoreFormazione[]>>({});
   const [tuttiGiocatori, setTuttiGiocatori] = useState<GiocatoreOption[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [scraping, setScraping] = useState<boolean>(false);
+  const [isScraping, setIsScraping] = useState<boolean>(false);
   const [messaggio, setMessaggio] = useState<string>('');
 
   // Ricerca e completamento automatico
@@ -116,6 +116,35 @@ export default function HomePage() {
     setLoading(false);
   };
 
+  // Funzione che esegue lo scraper Python via API e poi aggiorna l'interfaccia
+  const avviaScrapingEAggiorna = async () => {
+    setIsScraping(true);
+    setMessaggio('🐍 Esecuzione di scraper.py in corso...');
+
+    try {
+      const res = await fetch('/api/scrape', {
+        method: 'POST',
+      });
+
+      const result = await res.json();
+
+      if (!res.ok || !result.success) {
+        throw new Error(result.error || 'Errore durante l\'esecuzione dello script Python');
+      }
+
+      setMessaggio('✅ Formazioni aggiornate con successo tramite scraper.py!');
+      
+      // Ricarica i dati appena salvati da Supabase
+      await caricaFormazioni();
+    } catch (err: any) {
+      console.error('Errore durante lo scraping:', err);
+      setMessaggio(`❌ Errore: ${err.message}`);
+    } finally {
+      setIsScraping(false);
+      setTimeout(() => setMessaggio(''), 5000);
+    }
+  };
+
   useEffect(() => {
     caricaFormazioni();
   }, []);
@@ -196,27 +225,6 @@ export default function HomePage() {
     }
   };
 
-  const avviaScraping = async () => {
-    setScraping(true);
-    setMessaggio('Aggiornamento formazioni in corso...');
-    try {
-      const res = await fetch('/api/scrape');
-      const data = await res.json();
-
-      if (data.success) {
-        setMessaggio('Aggiornamento completato con successo!');
-        await caricaFormazioni();
-      } else {
-        setMessaggio('Errore durante lo scraping: ' + (data.message || data.error));
-      }
-    } catch (err: any) {
-      setMessaggio('Errore di connessione al server.');
-    } finally {
-      setScraping(false);
-      setTimeout(() => setMessaggio(''), 4000);
-    }
-  };
-
   const verificaTitolari = () => {
     if (miaRosa.length === 0) return;
 
@@ -251,20 +259,22 @@ export default function HomePage() {
             Probabili Formazioni Serie A
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Monitoraggio in tempo reale sincronizzato con Sky Sport
+            Monitoraggio in tempo reale sincronizzato con Fantacalcio.it
           </p>
         </div>
 
         <button
-          onClick={avviaScraping}
-          disabled={scraping}
-          className={`px-5 py-2.5 rounded-lg font-semibold text-sm transition-all shadow-md flex items-center justify-center space-x-2 ${
-            scraping
-              ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-              : 'bg-amber-500 hover:bg-amber-400 text-slate-950 active:scale-95'
-          }`}
+          onClick={avviaScrapingEAggiorna}
+          disabled={loading || isScraping}
+          className="px-5 py-2.5 rounded-lg font-semibold text-sm bg-amber-500 hover:bg-amber-400 text-slate-950 transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          {scraping ? <span>Aggiornamento...</span> : <span>🔄 Aggiorna Formazioni</span>}
+          {isScraping ? (
+            <>
+              <span className="animate-spin">🔄</span> Esecuzione scraper.py...
+            </>
+          ) : (
+            <>🚀 Aggiorna Probabili Formazioni</>
+          )}
         </button>
       </header>
 
