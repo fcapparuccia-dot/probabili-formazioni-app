@@ -10,6 +10,12 @@ interface GiocatoreMappato {
   squadra: string;
 }
 
+const SQUADRE_SERIE_A = [
+  'ATALANTA', 'BOLOGNA', 'CAGLIARI', 'COMO', 'EMPOLI', 'FIORENTINA',
+  'GENOA', 'INTER', 'JUVENTUS', 'LAZIO', 'LECCE', 'MILAN', 'MONZA',
+  'NAPOLI', 'PARMA', 'ROMA', 'TORINO', 'UDINESE', 'VENEZIA', 'VERONA', 'SASSUOLO'
+];
+
 export async function GET() {
   try {
     const url = 'https://www.fantacalcio.it/probabili-formazioni-serie-a';
@@ -26,51 +32,42 @@ export async function GET() {
     const giocatoriMappati: GiocatoreMappato[] = [];
     const visti = new Set<string>();
 
-    // Regex per identificare moduli tattici (es. 3-5-2, 4-3-3, 3-4-2-1)
-    const regexModulo = /^\d[-\d]+\d$/;
+    $('[class*="team"]').each((_, teamBlock) => {
+      let testoSquadra = $(teamBlock)
+        .find('h3, h4, .team-name, .title, header, .name')
+        .text()
+        .toUpperCase();
 
-    $('.box-card, .card, [class*="match"]').each((_, card) => {
-      $(card).find('.box-legenda, .team-incart, [class*="team"]').each((_, teamBlock) => {
-        let squadraGrezza = $(teamBlock)
-          .find('.team-name, .squadra-nome, h3, h4, header, .title')
-          .first()
-          .text()
+      // Trova la squadra ufficiale corrispondente all'interno del blocco
+      const squadraUfficiale = SQUADRE_SERIE_A.find((s) => testoSquadra.includes(s));
+
+      if (!squadraUfficiale) return;
+
+      $(teamBlock).find('[class*="player"]').each((_, p) => {
+        let rawText = $(p).text() || '';
+
+        let nomePulito = rawText
+          .split('\n')[0]
+          .replace(/^[PDCAR]\s+/i, '')
+          .replace(/\d+%/g, '')
+          .replace(/[\n\r\t]+/g, '')
           .trim();
 
-        // Pulisce il nome della squadra rimuovendo a capo e moduli tattici
-        let squadra = squadraGrezza
-          .split('\n')[0]
-          .replace(/\d[-\d]+\d/g, '')
-          .trim()
-          .toUpperCase();
-
-        if (!squadra || squadra.length < 3) return;
-
-        $(teamBlock).find('.player-item, .player-name, .titola-item, [class*="player"]').each((_, p) => {
-          let rawText = $(p).text() || '';
-
-          let nomePulito = rawText
-            .split('\n')[0]
-            .replace(/^[PDCAR]\s+/i, '')
-            .replace(/\d+%/g, '')
-            .replace(/[\n\r\t]+/g, '')
-            .trim();
-
-          // Scarta moduli tattici, stringhe corte o non valide
-          if (
-            nomePulito &&
-            nomePulito.length > 2 &&
-            !nomePulito.includes('VS') &&
-            !regexModulo.test(nomePulito) &&
-            isNaN(Number(nomePulito))
-          ) {
-            const chiaveUnica = `${nomePulito}-${squadra}`;
-            if (!visti.has(chiaveUnica)) {
-              visti.add(chiaveUnica);
-              giocatoriMappati.push({ nome: nomePulito, squadra });
-            }
+        // Filtra via stringhe non valide, moduli (es. 3-5-2) o numeri
+        if (
+          nomePulito &&
+          nomePulito.length > 2 &&
+          !nomePulito.includes('VS') &&
+          !/^\d[-\d]+\d$/.test(nomePulito) &&
+          !SQUADRE_SERIE_A.includes(nomePulito.toUpperCase()) &&
+          isNaN(Number(nomePulito))
+        ) {
+          const chiaveUnica = `${nomePulito}-${squadraUfficiale}`;
+          if (!visti.has(chiaveUnica)) {
+            visti.add(chiaveUnica);
+            giocatoriMappati.push({ nome: nomePulito, squadra: squadraUfficiale });
           }
-        });
+        }
       });
     });
 
