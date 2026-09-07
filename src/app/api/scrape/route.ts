@@ -16,6 +16,12 @@ const SQUADRE_SERIE_A = [
   'NAPOLI', 'PARMA', 'ROMA', 'TORINO', 'UDINESE', 'VENEZIA', 'VERONA', 'SASSUOLO'
 ];
 
+const PAROLE_DA_ESCLUDERE = [
+  'PROBABILI', 'FORMAZIONI', 'SERIE', 'CALCIOMERCATO', 'NEWS', 'FANTACALCIO',
+  'NOTIZIE', 'ULTIME', 'VOTI', 'CLASSIFICA', 'CALENDARIO', 'GUIDA', 'ASTA',
+  'BALLOTTAGGIO', 'INFORTUNATI', 'SQUALIFICATI', 'PANCHINA', 'SQUADRA'
+];
+
 export async function GET() {
   try {
     const url = 'https://www.fantacalcio.it/probabili-formazioni-serie-a';
@@ -24,7 +30,7 @@ export async function GET() {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Language': 'it-IT,it;q=0.9',
       },
       timeout: 12000,
     });
@@ -33,82 +39,60 @@ export async function GET() {
     const giocatoriMappati: GiocatoreMappato[] = [];
     const visti = new Set<string>();
 
-    // Rimuoviamo header, footer, menu, widget e breadcrumb
     $('header, footer, nav, .menu, .sidebar, .breadcrumbs, .banner, .ad-box').remove();
 
-    // 1. STRATEGIA SELETTORI SPECIFICI (Nomi giocatori all'interno dei box partita)
-    // Cerca gli elementi specifici dei calciatori dentro le formazioni
-    $('.player-name, .player, .player-item, a[href*="/squadre/"], a[href*="/giocatori/"], .titolarita-player, .player-row').each((_, el) => {
-      const text = $(el).text().trim();
-      
-      if (!text || text.length < 3 || text.length > 30) return;
+    // Individua ogni singolo blocco/colonna riservato a UNA SOLA SQUADRA
+    $('[class*="team"], [class*="squadra"], .box-legenda, .team-incart, .card-team').each((_, teamBlock) => {
+      // Estrae il nome della squadra direttamente dall'intestazione del blocco
+      const headerText = $(teamBlock)
+        .find('h3, h4, .team-name, .squadra-nome, .title, header, strong')
+        .first()
+        .text()
+        .toUpperCase()
+        .trim();
 
-      // Risale fino al contenitore della partita o del blocco squadra
-      const parentBlock = $(el).closest('.card-match, .match-card, .match, .box-partita, .single-match, article, section, div');
-      const parentText = parentBlock.text().toUpperCase();
+      const squadraUfficiale = SQUADRE_SERIE_A.find((s) => headerText.includes(s));
+      if (!squadraUfficiale) return;
 
-      const squadraTrovata = SQUADRE_SERIE_A.find((s) => parentText.includes(s));
+      // Estrae tutti i giocatori presenti SOLO all'interno di questa colonna squadra
+      $(teamBlock).find('a, .player-name, .player-item, [class*="player"], li').each((_, p) => {
+        // Ignora elementi che contengono altri sotto-elementi
+        if ($(p).children().length > 1) return;
 
-      if (squadraTrovata) {
-        let nomePulito = text
+        const rawText = $(p).text() || '';
+
+        let nomePulito = rawText
           .split('\n')[0]
-          .replace(/^[PDCAR]\s+/i, '') // Rimuove eventuali lettere ruolo
-          .replace(/\d+%/g, '')       // Rimuove percentuali di titolarità
+          .replace(/^[PDCAR]\s+/i, '')
+          .replace(/\d+%/g, '')
           .replace(/[\n\r\t]+/g, ' ')
           .trim();
 
-        // Controllo validità nome (esclude frasi lunghe o parole di navigazione)
-        const parole = nomePulito.split(' ');
-        const isFraseOHeader = parole.length > 4 || nomePulito.length > 25;
-        const contieneParoleChiaveSito = /PROBABILI|FORMAZIONI|SERIE|CALCIOMERCATO|NEWS|FANTACALCIO|NOTIZIE|ULTIME|VOTI|CLASSIFICA|CALENDARIO|GUIDA|ASTA/i.test(nomePulito);
+        const nomeUpper = nomePulito.toUpperCase();
+        const contieneEsclusioni = PAROLE_DA_ESCLUDERE.some((term) => nomeUpper.includes(term));
 
         if (
           nomePulito.length >= 3 &&
-          !isFraseOHeader &&
-          !contieneParoleChiaveSito &&
+          nomePulito.length <= 25 &&
+          !contieneEsclusioni &&
           !nomePulito.includes('VS') &&
-          !SQUADRE_SERIE_A.includes(nomePulito.toUpperCase()) &&
+          !/^\d[-\d]+\d$/.test(nomePulito) &&
+          !SQUADRE_SERIE_A.includes(nomeUpper) &&
           isNaN(Number(nomePulito))
         ) {
-          const key = `${nomePulito}-${squadraTrovata}`;
-          if (!visti.has(key)) {
-            visti.add(key);
-            giocatoriMappati.push({ nome: nomePulito, squadra: squadraTrovata });
-          }
-        }
-      }
-    });
-
-    // 2. FALLBACK SELETTORI AMPI (Se i selettori specifici non trovano nulla)
-    if (giocatoriMappati.length === 0) {
-      $('main, .content, #main').find('a, span, p, div').each((_, el) => {
-        if ($(el).children().length > 0) return; // solo nodi foglia
-
-        const text = $(el).text().trim();
-        if (!text || text.length < 3 || text.length > 25) return;
-
-        const parentText = $(el).closest('article, .card, div').text().toUpperCase();
-        const squadraTrovata = SQUADRE_SERIE_A.find((s) => parentText.includes(s));
-
-        if (squadraTrovata) {
-          const nomeUpper = text.toUpperCase();
-          const contieneParoleSito = /PROBABILI|FORMAZIONI|SERIE|CALCIOMERCATO|NEWS|FANTACALCIO|NOTIZIE|ULTIME|VOTI|CLASSIFICA|CALENDARIO|GUIDA|ASTA|LOGIN|REGISTRATI/i.test(nomeUpper);
-
-          if (!contieneParoleSito && text.split(' ').length <= 3 && !SQUADRE_SERIE_A.includes(nomeUpper)) {
-            const key = `${text}-${squadraTrovata}`;
-            if (!visti.has(key)) {
-              visti.add(key);
-              giocatoriMappati.push({ nome: text, squadra: squadraTrovata });
-            }
+          const chiaveUnica = `${nomePulito}-${squadraUfficiale}`;
+          if (!visti.has(chiaveUnica)) {
+            visti.add(chiaveUnica);
+            giocatoriMappati.push({ nome: nomePulito, squadra: squadraUfficiale });
           }
         }
       });
-    }
+    });
 
     if (giocatoriMappati.length === 0) {
       return NextResponse.json({
         success: false,
-        message: 'Nessun giocatore estrapolato. Verificare la struttura HTML della pagina.',
+        message: 'Impossibile estrarre le formazioni.',
       });
     }
 
@@ -136,7 +120,7 @@ export async function GET() {
 
     // 3. Bulk Upsert Probabili Formazioni
     if (giocatoriDb && giocatoriDb.length > 0) {
-      const fornamzioniData = giocatoriDb.map((g) => ({
+      const formazioniData = giocatoriDb.map((g) => ({
         giocatore_id: g.id,
         fonte: 'Fantacalcio.it',
         percentuale_titolarita: 100,
@@ -146,7 +130,7 @@ export async function GET() {
 
       await supabase
         .from('probabili_formazioni')
-        .upsert(fornamzioniData, { onConflict: 'giocatore_id,fonte' });
+        .upsert(formazioniData, { onConflict: 'giocatore_id,fonte' });
     }
 
     return NextResponse.json({
