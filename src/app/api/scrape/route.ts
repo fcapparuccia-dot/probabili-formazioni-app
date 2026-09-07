@@ -32,51 +32,61 @@ export async function GET() {
     const giocatoriMappati: GiocatoreMappato[] = [];
     const visti = new Set<string>();
 
-    $('[class*="team"]').each((_, teamBlock) => {
-      const testoSquadra = $(teamBlock)
-        .find('h3, h4, .team-name, .title, header, .name')
-        .text()
-        .toUpperCase();
+    // 1. Scansioniamo tutti gli elementi che contengono il testo di una squadra di Serie A
+    $('h1, h2, h3, h4, h5, div, span, a, p').each((_, el) => {
+      const testoNodo = $(el).text().trim().toUpperCase();
 
-      const squadraUfficiale = SQUADRE_SERIE_A.find((s) => testoSquadra.includes(s));
+      // Verifica se il testo corrisponde esattamente a una delle squadre
+      const squadraTrovata = SQUADRE_SERIE_A.find(
+        (s) => testoNodo === s || testoNodo.startsWith(s + ' ') || testoNodo.endsWith(' ' + s)
+      );
 
-      if (!squadraUfficiale) return;
+      if (!squadraTrovata) return;
 
-      $(teamBlock).find('[class*="player"]').each((_, p) => {
-        const rawText = $(p).text() || '';
+      // Risaliamo al primo contenitore comune (es. la card della partita o della singola squadra)
+      const parentCard = $(el).closest('.card, .box-card, [class*="match"], [class*="team"], div');
 
-        const nomePulito = rawText
-          .split('\n')[0]
-          .replace(/^[PDCAR]\s+/i, '')
-          .replace(/\d+%/g, '')
-          .replace(/[\n\r\t]+/g, '')
-          .trim();
+      if (parentCard.length > 0) {
+        // Estraiamo tutti i nodi di testo interni
+        parentCard.find('a, span, div, li, p').each((_, playerNode) => {
+          // Prendiamo solo i nodi foglia (senza figli) per evitare duplicati
+          if ($(playerNode).children().length === 0) {
+            const rawText = $(playerNode).text().trim();
 
-        if (
-          nomePulito &&
-          nomePulito.length > 2 &&
-          !nomePulito.includes('VS') &&
-          !/^\d[-\d]+\d$/.test(nomePulito) &&
-          !SQUADRE_SERIE_A.includes(nomePulito.toUpperCase()) &&
-          isNaN(Number(nomePulito))
-        ) {
-          const chiaveUnica = `${nomePulito}-${squadraUfficiale}`;
-          if (!visti.has(chiaveUnica)) {
-            visti.add(chiaveUnica);
-            giocatoriMappati.push({ nome: nomePulito, squadra: squadraUfficiale });
+            let nomePulito = rawText
+              .split('\n')[0]
+              .replace(/^[PDCAR]\s+/i, '')
+              .replace(/\d+%/g, '')
+              .replace(/[\n\r\t]+/g, '')
+              .trim();
+
+            if (
+              nomePulito &&
+              nomePulito.length > 2 &&
+              !nomePulito.includes('VS') &&
+              !/^\d[-\d]+\d$/.test(nomePulito) &&
+              !SQUADRE_SERIE_A.includes(nomePulito.toUpperCase()) &&
+              isNaN(Number(nomePulito))
+            ) {
+              const chiaveUnica = `${nomePulito}-${squadraTrovata}`;
+              if (!visti.has(chiaveUnica)) {
+                visti.add(chiaveUnica);
+                giocatoriMappati.push({ nome: nomePulito, squadra: squadraTrovata });
+              }
+            }
           }
-        }
-      });
+        });
+      }
     });
 
     if (giocatoriMappati.length === 0) {
       return NextResponse.json({
         success: false,
-        message: 'Impossibile estrarre le formazioni.',
+        message: 'Impossibile estrarre le formazioni. Nessun abbinamento trovato.',
       });
     }
 
-    // 1. Bulk Upsert Squadre
+    // 2. Bulk Upsert delle Squadre
     const squadreUniche = Array.from(new Set(giocatoriMappati.map((g) => g.squadra)));
     const { data: squadreDb } = await supabase
       .from('squadre')
@@ -85,7 +95,7 @@ export async function GET() {
 
     const squadraMap = new Map(squadreDb?.map((s) => [s.nome, s.id]));
 
-    // 2. Bulk Upsert Giocatori
+    // 3. Bulk Upsert dei Giocatori
     const giocatoriDaInserire = giocatoriMappati
       .filter((g) => squadraMap.has(g.squadra))
       .map((g) => ({
@@ -98,7 +108,7 @@ export async function GET() {
       .upsert(giocatoriDaInserire, { onConflict: 'nome_completo' })
       .select('id');
 
-    // 3. Bulk Upsert Probabili Formazioni
+    // 4. Bulk Upsert delle Probabili Formazioni
     if (giocatoriDb && giocatoriDb.length > 0) {
       const formazioniData = giocatoriDb.map((g) => ({
         giocatore_id: g.id,
