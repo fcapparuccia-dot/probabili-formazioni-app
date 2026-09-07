@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import axios from 'axios';
+import * as cheerio from 'cheerio';
 
 export const maxDuration = 60;
 
@@ -9,99 +10,109 @@ interface GiocatoreMappato {
   squadra: string;
 }
 
-const HEADERS_SOFASCORE = {
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': '*/*',
-  'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8',
-  'Origin': 'https://www.sofascore.com',
-  'Referer': 'https://www.sofascore.com/',
-};
-
-// ID Serie A su Sofascore: Unique Tournament ID = 23
-const SERIE_A_TOURNAMENT_ID = 23;
+const SQUADRE_SERIE_A = [
+  'ATALANTA', 'BOLOGNA', 'CAGLIARI', 'COMO', 'EMPOLI', 'FIORENTINA',
+  'GENOA', 'INTER', 'JUVENTUS', 'LAZIO', 'LECCE', 'MILAN', 'MONZA',
+  'NAPOLI', 'PARMA', 'ROMA', 'TORINO', 'UDINESE', 'VENEZIA', 'VERONA', 'SASSUOLO'
+];
 
 export async function GET() {
   try {
+    const url = 'https://www.sportmediaset.mediaset.it/calcissimo/probabili-formazioni-serie-a/';
+    const { data: html } = await axios.get(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'it-IT,it;q=0.9',
+      },
+      timeout: 12000,
+    });
+
+    const $ = cheerio.load(html);
     const giocatoriMappati: GiocatoreMappato[] = [];
     const visti = new Set<string>();
 
-    // 1. Otteniamo la stagione e il round/turno corrente della Serie A
-    const seasonRes = await axios.get(
-      `https://api.sofascore.com/api/v1/unique-tournament/${SERIE_A_TOURNAMENT_ID}/seasons`,
-      { headers: HEADERS_SOFASCORE, timeout: 8000 }
-    );
-    const currentSeasonId = seasonRes.data.seasons[0]?.id;
+    // Sportmediaset divide i blocchi delle partite in modo chiaro
+    $('.block-match, .box-match, article, .row-match, .match-container').each((_, matchBlock) => {
+      // Per ogni partita, trova le due sezioni delle rispettive squadre
+      $(matchBlock).find('.team, .squadra, .col-team, [class*="team"]').each((_, teamBlock) => {
+        const teamNameRaw = $(teamBlock).find('.team-name, h3, h4, strong, .title').first().text().toUpperCase().trim();
+        const squadraTrovata = SQUADRE_SERIE_A.find((s) => teamNameRaw.includes(s));
 
-    if (!currentSeasonId) {
-      throw new Error('Impossibile recuperare la stagione corrente da Sofascore');
-    }
+        if (!squadraTrovata) return;
 
-    // 2. Recuperiamo gli eventi/partite del turno corrente
-    const eventsRes = await axios.get(
-      `https://api.sofascore.com/api/v1/unique-tournament/${SERIE_A_TOURNAMENT_ID}/season/${currentSeasonId}/events/next/0`,
-      { headers: HEADERS_SOFASCORE, timeout: 8000 }
-    );
+        // Estrae i singoli calciatori dal blocco squadra isolato
+        $(teamBlock).find('.player, .giocatore, li, p').each((_, playerEl) => {
+          const text = $(playerEl).text().trim();
+          if (!text || text.length < 3 || text.length > 25) return;
 
-    const events = eventsRes.data.events || [];
+          let nomePulito = text
+            .split('\n')[0]
+            .replace(/^[PDCAR]\s+/i, '')
+            .replace(/\d+%/g, '')
+            .replace(/[\n\r\t]+/g, ' ')
+            .trim();
 
-    // 3. Per ogni partita del turno, recuperiamo le formazioni
-    for (const match of events.slice(0, 10)) {
-      const eventId = match.id;
-      const homeTeam = match.homeTeam?.name?.toUpperCase();
-      const awayTeam = match.awayTeam?.name?.toUpperCase();
+          const nomeUpper = nomePulito.toUpperCase();
 
-      try {
-        const lineupRes = await axios.get(
-          `https://api.sofascore.com/api/v1/event/${eventId}/lineups`,
-          { headers: HEADERS_SOFASCORE, timeout: 5000 }
-        );
+          if (
+            nomePulito.length >= 3 &&
+            !SQUADRE_SERIE_A.includes(nomeUpper) &&
+            !/PROBABILI|FORMAZIONI|SQUALIFICATI|INFORTUNATI|BALLOTTAGGI/i.test(nomeUpper) &&
+            nomePulito.split(' ').length <= 3
+          ) {
+            const key = `${nomePulito}-${squadraTrovata}`;
+            if (!visti.has(key)) {
+              visti.add(key);
+              giocatoriMappati.push({ nome: nomePulito, squadra: squadraTrovata });
+            }
+          }
+        });
+      });
+    });
 
-        const { home, away } = lineupRes.data;
+    // Fallback: se la struttura specifica del CSS cambia, parsing sequenziale su liste
+    if (giocatoriMappati.length === 0) {
+      let squadraCorrente = '';
 
-        // Estrazione giocatori Casa
-        if (home?.players) {
-          for (const item of home.players) {
-            const player = item.player;
-            const nome = player.shortName || player.name;
-            if (nome && homeTeam) {
-              const key = `${nome}-${homeTeam}`;
-              if (!visti.has(key)) {
-                visti.add(key);
-                giocatoriMappati.push({ nome, squadra: homeTeam });
-              }
+      $('main, .content, body').find('h2, h3, h4, .squadra, li, p').each((_, el) => {
+        const text = $(el).text().trim();
+        if (!text) return;
+
+        const textUpper = text.toUpperCase();
+        const squadraTrovata = SQUADRE_SERIE_A.find((s) => textUpper === s || textUpper.startsWith(s + ' '));
+
+        if (squadraTrovata) {
+          squadraCorrente = squadraTrovata;
+          return;
+        }
+
+        if (squadraCorrente && text.length >= 3 && text.length <= 25) {
+          const nomeUpper = text.toUpperCase();
+          if (
+            !SQUADRE_SERIE_A.includes(nomeUpper) &&
+            !/PROBABILI|FORMAZIONI|SQUALIFICATI|INFORTUNATI/i.test(nomeUpper) &&
+            text.split(' ').length <= 3
+          ) {
+            const key = `${text}-${squadraCorrente}`;
+            if (!visti.has(key)) {
+              visti.add(key);
+              giocatoriMappati.push({ nome: text, squadra: squadraCorrente });
             }
           }
         }
-
-        // Estrazione giocatori Trasferta
-        if (away?.players) {
-          for (const item of away.players) {
-            const player = item.player;
-            const nome = player.shortName || player.name;
-            if (nome && awayTeam) {
-              const key = `${nome}-${awayTeam}`;
-              if (!visti.has(key)) {
-                visti.add(key);
-                giocatoriMappati.push({ nome, squadra: awayTeam });
-              }
-            }
-          }
-        }
-      } catch {
-        // Se per una specifica partita le formazioni non sono ancora disponibili, passa alla successiva
-        continue;
-      }
+      });
     }
 
     if (giocatoriMappati.length === 0) {
       return NextResponse.json({
         success: false,
-        message: 'Nessuna formazione trovata su Sofascore per il turno corrente.',
+        message: 'Impossibile estrarre i dati dalla nuova fonte.',
       });
     }
 
-    // 4. Bulk Upsert Squadre su Supabase
+    // 1. Bulk Upsert Squadre
     const squadreUniche = Array.from(new Set(giocatoriMappati.map((g) => g.squadra)));
     const { data: squadreDb } = await supabase
       .from('squadre')
@@ -110,7 +121,7 @@ export async function GET() {
 
     const squadraMap = new Map(squadreDb?.map((s) => [s.nome, s.id]));
 
-    // 5. Bulk Upsert Giocatori
+    // 2. Bulk Upsert Giocatori
     const giocatoriDaInserire = giocatoriMappati
       .filter((g) => squadraMap.has(g.squadra))
       .map((g) => ({
@@ -123,11 +134,11 @@ export async function GET() {
       .upsert(giocatoriDaInserire, { onConflict: 'nome_completo' })
       .select('id');
 
-    // 6. Bulk Upsert Formazioni
+    // 3. Bulk Upsert Probabili Formazioni
     if (giocatoriDb && giocatoriDb.length > 0) {
       const formazioniData = giocatoriDb.map((g) => ({
         giocatore_id: g.id,
-        fonte: 'Sofascore',
+        fonte: 'Sportmediaset',
         percentuale_titolarita: 100,
         stato: 'titolare',
         aggiornato_il: new Date().toISOString(),
@@ -140,7 +151,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      message: 'Sincronizzazione da Sofascore completata con successo!',
+      message: 'Sincronizzazione completata da Sportmediaset!',
       totaleGiocatoriMappati: giocatoriMappati.length,
       campione: giocatoriMappati.slice(0, 15),
     });
