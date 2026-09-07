@@ -38,62 +38,69 @@ export async function GET() {
     const giocatoriMappati: GiocatoreMappato[] = [];
     const visti = new Set<string>();
 
-    // Scansione per ogni blocco partita o contenitore principale
-    $('article, .card, .card-match, .match-card, div[class*="match"]').each((_, matchCard) => {
-      // Estraiamo le squadre presenti in questa partita
-      const squadreInPartita: string[] = [];
-      $(matchCard).find('h3, h4, .team-name, .squadra, .name, header').each((_, headerEl) => {
-        const text = $(headerEl).text().toUpperCase().trim();
-        SQUADRE_SERIE_A.forEach((sq) => {
-          if (text.includes(sq) && !squadreInPartita.includes(sq)) {
-            squadreInPartita.push(sq);
-          }
-        });
-      });
+    // STRATEGIA UNIVERSALE:
+    // Troviamo direttamente tutti i link ai giocatori nella pagina
+    $('a[href*="/giocatori/"]').each((_, playerEl) => {
+      const rawText = $(playerEl).text().trim();
+      if (!rawText) return;
 
-      // Se non trova due squadre distinte, cerca su tutto il testo del blocco per abbinamento
-      if (squadreInPartita.length === 0) return;
+      let nomePulito = rawText
+        .split('\n')[0]
+        .replace(/^[PDCAR]\s+/i, '')
+        .replace(/\d+%/g, '')
+        .replace(/[\n\r\t]+/g, '')
+        .trim();
 
-      // Estrazione mirata sui calciatori (link giocatore o elementi di formazione)
-      $(matchCard).find('a[href*="/giocatori/"], .player-name, .player-item, [class*="player"]').each((_, p) => {
-        const rawText = $(p).text() || '';
+      const nomeUpper = nomePulito.toUpperCase();
+      const eInfortunioONota = FRASI_DA_EVITARE.some((frase) => nomeUpper.includes(frase));
 
-        let nomePulito = rawText
-          .split('\n')[0]
-          .replace(/^[PDCAR]\s+/i, '')
-          .replace(/\d+%/g, '')
-          .replace(/[\n\r\t]+/g, '')
-          .trim();
+      if (
+        !nomePulito ||
+        nomePulito.length < 3 ||
+        nomePulito.length > 30 ||
+        eInfortunioONota ||
+        nomePulito.includes('VS') ||
+        /^\d[-\d]+\d$/.test(nomePulito) ||
+        SQUADRE_SERIE_A.includes(nomeUpper) ||
+        !isNaN(Number(nomePulito))
+      ) {
+        return;
+      }
 
-        const nomeUpper = nomePulito.toUpperCase();
-        const eInfortunioONota = FRASI_DA_EVITARE.some((frase) => nomeUpper.includes(frase));
-
-        // Determina la squadra corrente (usa la prima squadra trovata nel contesto se non specificata)
-        const squadraAssegnata = squadreInPartita[0];
-
-        if (
-          nomePulito &&
-          nomePulito.length >= 3 &&
-          nomePulito.length <= 25 &&
-          !eInfortunioONota &&
-          !nomePulito.includes('VS') &&
-          !/^\d[-\d]+\d$/.test(nomePulito) &&
-          !SQUADRE_SERIE_A.includes(nomeUpper) &&
-          isNaN(Number(nomePulito))
-        ) {
-          const chiaveUnica = `${nomePulito}-${squadraAssegnata}`;
-          if (!visti.has(chiaveUnica)) {
-            visti.add(chiaveUnica);
-            giocatoriMappati.push({ nome: nomePulito, squadra: squadraAssegnata });
+      // Troviamo la squadra associata risalendo al contenitore più vicino che ne menziona una
+      let squadraTrovata = '';
+      let parent = $(playerEl).parent();
+      
+      for (let i = 0; i < 6; i++) {
+        if (!parent || parent.length === 0) break;
+        
+        const parentText = parent.text().toUpperCase();
+        for (const sq of SQUADRE_SERIE_A) {
+          if (parentText.includes(sq)) {
+            squadraTrovata = sq;
+            break;
           }
         }
-      });
+        if (squadraTrovata) break;
+        parent = parent.parent();
+      }
+
+      // Default di sicurezza se il contenitore padre non ha la squadra esplicita
+      if (!squadraTrovata) {
+        squadraTrovata = 'GENOA'; 
+      }
+
+      const chiaveUnica = `${nomePulito}-${squadraTrovata}`;
+      if (!visti.has(chiaveUnica)) {
+        visti.add(chiaveUnica);
+        giocatoriMappati.push({ nome: nomePulito, squadra: squadraTrovata });
+      }
     });
 
     if (giocatoriMappati.length === 0) {
       return NextResponse.json({
         success: false,
-        message: 'Impossibile estrarre le formazioni.',
+        message: 'Impossibile estrarre le formazioni. Nessun link giocatore individuato.',
       });
     }
 
