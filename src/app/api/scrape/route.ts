@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 
-export const maxDuration = 60; // Imposta il timeout massimo supportato
+export const maxDuration = 60;
 
 interface GiocatoreMappato {
   nome: string;
@@ -18,13 +18,14 @@ export async function GET() {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
-      timeout: 5000,
+      timeout: 8000,
     });
 
     const $ = cheerio.load(html);
     const giocatoriMappati: GiocatoreMappato[] = [];
+    const visti = new Set<string>();
 
-    // Estrazione veloce dai blocchi squadra
+    // Estrazione dai blocchi squadra di Fantacalcio.it
     $('[class*="team"]').each((_, teamBlock) => {
       const squadra = $(teamBlock)
         .find('h3, h4, .title, .team-name, .name')
@@ -33,12 +34,32 @@ export async function GET() {
         .trim()
         .toUpperCase();
 
-      if (!squadra) return;
+      if (!squadra || squadra.length < 3) return;
 
-      $(teamBlock).find('[class*="player"]').each((_, p) => {
-        const nome = $(p).text().trim().replace(/^[PDCAR]\s+/i, '').trim();
-        if (nome && nome.length > 2 && !nome.includes('VS')) {
-          giocatoriMappati.push({ nome, squadra });
+      // Cerchiamo gli elementi specifici del nome giocatore
+      $(teamBlock).find('.player-name, .name, [class*="player"]').each((_, p) => {
+        let testoGrezzo = $(p).text() || '';
+
+        // Prendiamo solo la prima riga se ci sono a capo e puliamo il testo
+        let nomePulito = testoGrezzo
+          .split('\n')[0]
+          .replace(/^[PDCAR]\s+/i, '') // Rimuove ruoli come P, D, C, A
+          .replace(/\d+%/g, '')         // Rimuove percentuali tipo 100%
+          .replace(/[\n\r\t]+/g, '')   // Rimuove spazi vuoti strani e a capo
+          .trim();
+
+        // Evitiamo stringhe troppo corte, numeri o parole chiave non valide
+        if (
+          nomePulito &&
+          nomePulito.length > 2 &&
+          !nomePulito.includes('VS') &&
+          isNaN(Number(nomePulito))
+        ) {
+          const chiaveUnica = `${nomePulito}-${squadra}`;
+          if (!visti.has(chiaveUnica)) {
+            visti.add(chiaveUnica);
+            giocatoriMappati.push({ nome: nomePulito, squadra });
+          }
         }
       });
     });
@@ -46,11 +67,11 @@ export async function GET() {
     if (giocatoriMappati.length === 0) {
       return NextResponse.json({
         success: false,
-        message: 'Impossibile estrarre le formazioni. Nessun giocatore trovato.',
+        message: 'Impossibile estrarre le formazioni.',
       });
     }
 
-    // 1. Estrai tutte le squadre uniche ed effettua un upsert unico
+    // 1. Salvataggio / Upsert Squadre
     const squadreUniche = Array.from(new Set(giocatoriMappati.map((g) => g.squadra)));
     const { data: squadreDb } = await supabase
       .from('squadre')
@@ -59,7 +80,7 @@ export async function GET() {
 
     const squadraMap = new Map(squadreDb?.map((s) => [s.nome, s.id]));
 
-    // 2. Prepara i giocatori con la squadra_id corretta
+    // 2. Prepariamo e puliamo i giocatori da inserire su Supabase
     const giocatoriDaInserire = giocatoriMappati
       .filter((g) => squadraMap.has(g.squadra))
       .map((g) => ({
@@ -67,14 +88,13 @@ export async function GET() {
         squadra_id: squadraMap.get(g.squadra)!,
       }));
 
-    // Inserisci/aggiorna i giocatori in bulk (in un'unica operazione)
     const { data: giocatoriDb } = await supabase
       .from('giocatori')
       .upsert(giocatoriDaInserire, { onConflict: 'nome_completo' })
       .select('id');
 
     if (giocatoriDb && giocatoriDb.length > 0) {
-      // 3. Salvataggio in batch delle probabili formazioni
+      // 3. Upsert tabelle probabili formazioni
       const formazioniData = giocatoriDb.map((g) => ({
         giocatore_id: g.id,
         fonte: 'Fantacalcio.it',
@@ -90,9 +110,9 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      message: 'Sincronizzazione ultra-rapida completata!',
+      message: 'Sincronizzazione pulita completata!',
       totaleGiocatoriMappati: giocatoriMappati.length,
-      campione: giocatoriMappati.slice(0, 10),
+      campione: giocatoriMappati.slice(0, 15),
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
