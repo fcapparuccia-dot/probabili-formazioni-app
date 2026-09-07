@@ -26,25 +26,29 @@ export async function GET() {
     const giocatoriMappati: GiocatoreMappato[] = [];
     const visti = new Set<string>();
 
-    // Selettore principale delle schede incontro su Fantacalcio.it
+    // Regex per identificare moduli tattici (es. 3-5-2, 4-3-3, 3-4-2-1)
+    const regexModulo = /^\d[-\d]+\d$/;
+
     $('.box-card, .card, [class*="match"]').each((_, card) => {
-      // Individua i blocchi relativi alle due squadre nella scheda
       $(card).find('.box-legenda, .team-incart, [class*="team"]').each((_, teamBlock) => {
-        // Estrai il nome della squadra
-        let squadra = $(teamBlock)
+        let squadraGrezza = $(teamBlock)
           .find('.team-name, .squadra-nome, h3, h4, header, .title')
           .first()
           .text()
+          .trim();
+
+        // Pulisce il nome della squadra rimuovendo a capo e moduli tattici
+        let squadra = squadraGrezza
+          .split('\n')[0]
+          .replace(/\d[-\d]+\d/g, '')
           .trim()
           .toUpperCase();
 
         if (!squadra || squadra.length < 3) return;
 
-        // Estrai tutti gli elementi giocatore dentro la singola squadra
         $(teamBlock).find('.player-item, .player-name, .titola-item, [class*="player"]').each((_, p) => {
           let rawText = $(p).text() || '';
 
-          // Pulizia mirata: estrae solo il nome prima di a capo, percentuali o ruoli
           let nomePulito = rawText
             .split('\n')[0]
             .replace(/^[PDCAR]\s+/i, '')
@@ -52,11 +56,12 @@ export async function GET() {
             .replace(/[\n\r\t]+/g, '')
             .trim();
 
-          // Ignora stringhe non valide, percentuali o duplicati
+          // Scarta moduli tattici, stringhe corte o non valide
           if (
             nomePulito &&
             nomePulito.length > 2 &&
             !nomePulito.includes('VS') &&
+            !regexModulo.test(nomePulito) &&
             isNaN(Number(nomePulito))
           ) {
             const chiaveUnica = `${nomePulito}-${squadra}`;
@@ -69,39 +74,10 @@ export async function GET() {
       });
     });
 
-    // Fallback ad ampio spettro se la struttura del wrapper varia
-    if (giocatoriMappati.length === 0) {
-      $('[class*="team"]').each((_, teamBlock) => {
-        const squadra = $(teamBlock)
-          .find('h3, h4, .title, .team-name, header')
-          .first()
-          .text()
-          .trim()
-          .toUpperCase();
-
-        if (!squadra || squadra.length < 3) return;
-
-        $(teamBlock).find('a, span, div').each((_, el) => {
-          const txt = $(el).text().trim();
-          // Individua nodi di testo legati ai calciatori
-          if ($(el).children().length === 0 && txt.length > 2 && !txt.includes('%') && !txt.includes('VS')) {
-            const nomeClean = txt.replace(/^[PDCAR]\s+/i, '').trim();
-            if (nomeClean.length > 2 && isNaN(Number(nomeClean))) {
-              const key = `${nomeClean}-${squadra}`;
-              if (!visti.has(key)) {
-                visti.add(key);
-                giocatoriMappati.push({ nome: nomeClean, squadra });
-              }
-            }
-          }
-        });
-      });
-    }
-
     if (giocatoriMappati.length === 0) {
       return NextResponse.json({
         success: false,
-        message: 'Impossibile estrarre le formazioni. Verificare selettori.',
+        message: 'Impossibile estrarre le formazioni.',
       });
     }
 
@@ -144,7 +120,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      message: 'Sincronizzazione completata con successo!',
+      message: 'Sincronizzazione completata e pulita!',
       totaleGiocatoriMappati: giocatoriMappati.length,
       campione: giocatoriMappati.slice(0, 10),
     });
