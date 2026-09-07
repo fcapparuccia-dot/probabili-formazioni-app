@@ -16,6 +16,13 @@ const SQUADRE_SERIE_A = [
   'NAPOLI', 'PARMA', 'ROMA', 'TORINO', 'UDINESE', 'VENEZIA', 'VERONA', 'SASSUOLO'
 ];
 
+// Parole chiave da scartare per evitare frasi di infortunio o note
+const FRASI_DA_EVITARE = [
+  'NESSUNA NOTIZIA', 'DUBBIO', 'INFORTUNIO', 'OUT', 'NOIE FISICHE',
+  'CONTRO IL', 'RIENTRO', 'SQUALIFICATO', 'RISENTIMENTO', 'LESIONE',
+  'DISTORSIONE', 'AFFATICAMENTO', 'PROBLEMA', 'OPERAZIONE', 'PANCHINA'
+];
+
 export async function GET() {
   try {
     const url = 'https://www.fantacalcio.it/probabili-formazioni-serie-a';
@@ -32,61 +39,62 @@ export async function GET() {
     const giocatoriMappati: GiocatoreMappato[] = [];
     const visti = new Set<string>();
 
-    // 1. Scansioniamo tutti gli elementi che contengono il testo di una squadra di Serie A
-    $('h1, h2, h3, h4, h5, div, span, a, p').each((_, el) => {
-      const testoNodo = $(el).text().trim().toUpperCase();
+    // Isoliamo ciascuna scheda partita
+    $('.card-match, .box-card, .card, [class*="match"]').each((_, matchCard) => {
+      // Troviamo i due blocchi squadra della partita
+      $(matchCard).find('[class*="team"], .box-legenda, .team-incart').each((_, teamBlock) => {
+        const testoSquadra = $(teamBlock)
+          .find('h3, h4, .team-name, .title, header, .name')
+          .text()
+          .toUpperCase();
 
-      // Verifica se il testo corrisponde esattamente a una delle squadre
-      const squadraTrovata = SQUADRE_SERIE_A.find(
-        (s) => testoNodo === s || testoNodo.startsWith(s + ' ') || testoNodo.endsWith(' ' + s)
-      );
+        const squadraUfficiale = SQUADRE_SERIE_A.find((s) => testoSquadra.includes(s));
+        if (!squadraUfficiale) return;
 
-      if (!squadraTrovata) return;
+        // Estraiamo solo i link o elementi di classe player (dove ci sono solo i nomi)
+        $(teamBlock).find('a[href*="/giocatori/"], .player-name, .player-item, [class*="player"]').each((_, p) => {
+          const rawText = $(p).text() || '';
 
-      // Risaliamo al primo contenitore comune (es. la card della partita o della singola squadra)
-      const parentCard = $(el).closest('.card, .box-card, [class*="match"], [class*="team"], div');
+          let nomePulito = rawText
+            .split('\n')[0]
+            .replace(/^[PDCAR]\s+/i, '')
+            .replace(/\d+%/g, '')
+            .replace(/[\n\r\t]+/g, '')
+            .trim();
 
-      if (parentCard.length > 0) {
-        // Estraiamo tutti i nodi di testo interni
-        parentCard.find('a, span, div, li, p').each((_, playerNode) => {
-          // Prendiamo solo i nodi foglia (senza figli) per evitare duplicati
-          if ($(playerNode).children().length === 0) {
-            const rawText = $(playerNode).text().trim();
+          const nomeUpper = nomePulito.toUpperCase();
 
-            let nomePulito = rawText
-              .split('\n')[0]
-              .replace(/^[PDCAR]\s+/i, '')
-              .replace(/\d+%/g, '')
-              .replace(/[\n\r\t]+/g, '')
-              .trim();
+          // Filtri di pulizia stringa
+          const eInfortunioONota = FRASI_DA_EVITARE.some((frase) => nomeUpper.includes(frase));
 
-            if (
-              nomePulito &&
-              nomePulito.length > 2 &&
-              !nomePulito.includes('VS') &&
-              !/^\d[-\d]+\d$/.test(nomePulito) &&
-              !SQUADRE_SERIE_A.includes(nomePulito.toUpperCase()) &&
-              isNaN(Number(nomePulito))
-            ) {
-              const chiaveUnica = `${nomePulito}-${squadraTrovata}`;
-              if (!visti.has(chiaveUnica)) {
-                visti.add(chiaveUnica);
-                giocatoriMappati.push({ nome: nomePulito, squadra: squadraTrovata });
-              }
+          if (
+            nomePulito &&
+            nomePulito.length >= 3 &&
+            nomePulito.length <= 25 &&
+            !eInfortunioONota &&
+            !nomePulito.includes('VS') &&
+            !/^\d[-\d]+\d$/.test(nomePulito) &&
+            !SQUADRE_SERIE_A.includes(nomeUpper) &&
+            isNaN(Number(nomePulito))
+          ) {
+            const chiaveUnica = `${nomePulito}-${squadraUfficiale}`;
+            if (!visti.has(chiaveUnica)) {
+              visti.add(chiaveUnica);
+              giocatoriMappati.push({ nome: nomePulito, squadra: squadraUfficiale });
             }
           }
         });
-      }
+      });
     });
 
     if (giocatoriMappati.length === 0) {
       return NextResponse.json({
         success: false,
-        message: 'Impossibile estrarre le formazioni. Nessun abbinamento trovato.',
+        message: 'Impossibile estrarre le formazioni.',
       });
     }
 
-    // 2. Bulk Upsert delle Squadre
+    // 1. Bulk Upsert Squadre
     const squadreUniche = Array.from(new Set(giocatoriMappati.map((g) => g.squadra)));
     const { data: squadreDb } = await supabase
       .from('squadre')
@@ -95,7 +103,7 @@ export async function GET() {
 
     const squadraMap = new Map(squadreDb?.map((s) => [s.nome, s.id]));
 
-    // 3. Bulk Upsert dei Giocatori
+    // 2. Bulk Upsert Giocatori
     const giocatoriDaInserire = giocatoriMappati
       .filter((g) => squadraMap.has(g.squadra))
       .map((g) => ({
@@ -108,7 +116,7 @@ export async function GET() {
       .upsert(giocatoriDaInserire, { onConflict: 'nome_completo' })
       .select('id');
 
-    // 4. Bulk Upsert delle Probabili Formazioni
+    // 3. Bulk Upsert Probabili Formazioni
     if (giocatoriDb && giocatoriDb.length > 0) {
       const formazioniData = giocatoriDb.map((g) => ({
         giocatore_id: g.id,
@@ -125,7 +133,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      message: 'Sincronizzazione completata con successo!',
+      message: 'Sincronizzazione pulita completata!',
       totaleGiocatoriMappati: giocatoriMappati.length,
       campione: giocatoriMappati.slice(0, 10),
     });
