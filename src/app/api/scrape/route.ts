@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import axios from 'axios';
-import * as cheerio from 'cheerio';
 
 export const maxDuration = 60;
 
@@ -10,109 +9,67 @@ interface GiocatoreMappato {
   squadra: string;
 }
 
-const SQUADRE_SERIE_A = [
-  'ATALANTA', 'BOLOGNA', 'CAGLIARI', 'COMO', 'EMPOLI', 'FIORENTINA',
-  'GENOA', 'INTER', 'JUVENTUS', 'LAZIO', 'LECCE', 'MILAN', 'MONZA',
-  'NAPOLI', 'PARMA', 'ROMA', 'TORINO', 'UDINESE', 'VENEZIA', 'VERONA', 'SASSUOLO'
-];
+// ID Serie A su TheSportsDB = 4332
+const LEAGUE_ID = '4332';
+const API_KEY = '3'; // Chiave API pubblica/free fornita da TheSportsDB
 
 export async function GET() {
   try {
-    const url = 'https://www.sportmediaset.mediaset.it/calcissimo/probabili-formazioni-serie-a/';
-    const { data: html } = await axios.get(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'it-IT,it;q=0.9',
-      },
-      timeout: 12000,
-    });
-
-    const $ = cheerio.load(html);
     const giocatoriMappati: GiocatoreMappato[] = [];
     const visti = new Set<string>();
 
-    // Sportmediaset divide i blocchi delle partite in modo chiaro
-    $('.block-match, .box-match, article, .row-match, .match-container').each((_, matchBlock) => {
-      // Per ogni partita, trova le due sezioni delle rispettive squadre
-      $(matchBlock).find('.team, .squadra, .col-team, [class*="team"]').each((_, teamBlock) => {
-        const teamNameRaw = $(teamBlock).find('.team-name, h3, h4, strong, .title').first().text().toUpperCase().trim();
-        const squadraTrovata = SQUADRE_SERIE_A.find((s) => teamNameRaw.includes(s));
+    // 1. Recupera la lista delle squadre della Serie A
+    const teamsRes = await axios.get(
+      `https://www.thesportsdb.com/api/v1/json/${API_KEY}/lookup_all_teams.php?id=${LEAGUE_ID}`,
+      { timeout: 10000 }
+    );
 
-        if (!squadraTrovata) return;
+    const teams = teamsRes.data?.teams || [];
 
-        // Estrae i singoli calciatori dal blocco squadra isolato
-        $(teamBlock).find('.player, .giocatore, li, p').each((_, playerEl) => {
-          const text = $(playerEl).text().trim();
-          if (!text || text.length < 3 || text.length > 25) return;
-
-          let nomePulito = text
-            .split('\n')[0]
-            .replace(/^[PDCAR]\s+/i, '')
-            .replace(/\d+%/g, '')
-            .replace(/[\n\r\t]+/g, ' ')
-            .trim();
-
-          const nomeUpper = nomePulito.toUpperCase();
-
-          if (
-            nomePulito.length >= 3 &&
-            !SQUADRE_SERIE_A.includes(nomeUpper) &&
-            !/PROBABILI|FORMAZIONI|SQUALIFICATI|INFORTUNATI|BALLOTTAGGI/i.test(nomeUpper) &&
-            nomePulito.split(' ').length <= 3
-          ) {
-            const key = `${nomePulito}-${squadraTrovata}`;
-            if (!visti.has(key)) {
-              visti.add(key);
-              giocatoriMappati.push({ nome: nomePulito, squadra: squadraTrovata });
-            }
-          }
-        });
+    if (teams.length === 0) {
+      return NextResponse.json({
+        success: false,
+        message: 'Impossibile recuperare le squadre da TheSportsDB.',
       });
-    });
+    }
 
-    // Fallback: se la struttura specifica del CSS cambia, parsing sequenziale su liste
-    if (giocatoriMappati.length === 0) {
-      let squadraCorrente = '';
+    // 2. Per ogni squadra, recupera la rosa completa dei giocatori
+    for (const team of teams) {
+      const teamId = team.idTeam;
+      const teamName = team.strTeam.toUpperCase();
 
-      $('main, .content, body').find('h2, h3, h4, .squadra, li, p').each((_, el) => {
-        const text = $(el).text().trim();
-        if (!text) return;
+      try {
+        const playersRes = await axios.get(
+          `https://www.thesportsdb.com/api/v1/json/${API_KEY}/lookup_all_players.php?id=${teamId}`,
+          { timeout: 5000 }
+        );
 
-        const textUpper = text.toUpperCase();
-        const squadraTrovata = SQUADRE_SERIE_A.find((s) => textUpper === s || textUpper.startsWith(s + ' '));
+        const players = playersRes.data?.player || [];
 
-        if (squadraTrovata) {
-          squadraCorrente = squadraTrovata;
-          return;
-        }
-
-        if (squadraCorrente && text.length >= 3 && text.length <= 25) {
-          const nomeUpper = text.toUpperCase();
-          if (
-            !SQUADRE_SERIE_A.includes(nomeUpper) &&
-            !/PROBABILI|FORMAZIONI|SQUALIFICATI|INFORTUNATI/i.test(nomeUpper) &&
-            text.split(' ').length <= 3
-          ) {
-            const key = `${text}-${squadraCorrente}`;
+        for (const player of players) {
+          const nome = player.strPlayer;
+          if (nome) {
+            const key = `${nome}-${teamName}`;
             if (!visti.has(key)) {
               visti.add(key);
-              giocatoriMappati.push({ nome: text, squadra: squadraCorrente });
+              giocatoriMappati.push({ nome, squadra: teamName });
             }
           }
         }
-      });
+      } catch {
+        // Se una chiamata a un team va in timeout o fallisce, prosegue con le altre squadre
+        continue;
+      }
     }
 
     if (giocatoriMappati.length === 0) {
       return NextResponse.json({
         success: false,
-        message: 'Impossibile estrarre i dati dalla nuova fonte.',
+        message: 'Nessun giocatore estrapolato dall\'API.',
       });
     }
 
-    // 1. Bulk Upsert Squadre
+    // 3. Bulk Upsert Squadre
     const squadreUniche = Array.from(new Set(giocatoriMappati.map((g) => g.squadra)));
     const { data: squadreDb } = await supabase
       .from('squadre')
@@ -121,7 +78,7 @@ export async function GET() {
 
     const squadraMap = new Map(squadreDb?.map((s) => [s.nome, s.id]));
 
-    // 2. Bulk Upsert Giocatori
+    // 4. Bulk Upsert Giocatori
     const giocatoriDaInserire = giocatoriMappati
       .filter((g) => squadraMap.has(g.squadra))
       .map((g) => ({
@@ -134,11 +91,11 @@ export async function GET() {
       .upsert(giocatoriDaInserire, { onConflict: 'nome_completo' })
       .select('id');
 
-    // 3. Bulk Upsert Probabili Formazioni
+    // 5. Bulk Upsert Probabili Formazioni
     if (giocatoriDb && giocatoriDb.length > 0) {
       const formazioniData = giocatoriDb.map((g) => ({
         giocatore_id: g.id,
-        fonte: 'Sportmediaset',
+        fonte: 'TheSportsDB',
         percentuale_titolarita: 100,
         stato: 'titolare',
         aggiornato_il: new Date().toISOString(),
@@ -151,7 +108,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      message: 'Sincronizzazione completata da Sportmediaset!',
+      message: 'Sincronizzazione API completata con successo!',
       totaleGiocatoriMappati: giocatoriMappati.length,
       campione: giocatoriMappati.slice(0, 15),
     });
