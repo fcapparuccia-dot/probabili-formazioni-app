@@ -19,7 +19,8 @@ const SQUADRE_SERIE_A = [
 const PAROLE_DA_ESCLUDERE = [
   'PROBABILI', 'FORMAZIONI', 'SERIE', 'CALCIOMERCATO', 'NEWS', 'FANTACALCIO',
   'NOTIZIE', 'ULTIME', 'VOTI', 'CLASSIFICA', 'CALENDARIO', 'GUIDA', 'ASTA',
-  'BALLOTTAGGIO', 'INFORTUNATI', 'SQUALIFICATI', 'PANCHINA', 'SQUADRA'
+  'BALLOTTAGGIO', 'INFORTUNATI', 'SQUALIFICATI', 'PANCHINA', 'SQUADRA',
+  'CONTATTI', 'PRIVACY', 'COOKIE', 'REGOLAMENTO', 'SUPPORT', 'LOGIN', 'HOME'
 ];
 
 export async function GET() {
@@ -39,27 +40,26 @@ export async function GET() {
     const giocatoriMappati: GiocatoreMappato[] = [];
     const visti = new Set<string>();
 
-    $('header, footer, nav, .menu, .sidebar, .breadcrumbs, .banner, .ad-box').remove();
+    // Rimuoviamo elementi non di contenuto
+    $('header, footer, nav, .menu, .sidebar, .breadcrumbs, .banner, .ad-box, script, style').remove();
 
-    // Individua ogni singolo blocco/colonna riservato a UNA SOLA SQUADRA
-    $('[class*="team"], [class*="squadra"], .box-legenda, .team-incart, .card-team').each((_, teamBlock) => {
-      // Estrae il nome della squadra direttamente dall'intestazione del blocco
-      const headerText = $(teamBlock)
-        .find('h3, h4, .team-name, .squadra-nome, .title, header, strong')
-        .first()
-        .text()
-        .toUpperCase()
-        .trim();
+    // STRATEGIA 1: Cerca le schede/card delle partite e separa le due squadre
+    const matchCards = $('.card-match, .match-card, .box-partita, .card-team, article, section').toArray();
 
-      const squadraUfficiale = SQUADRE_SERIE_A.find((s) => headerText.includes(s));
-      if (!squadraUfficiale) return;
+    for (const card of matchCards) {
+      const cardEl = $(card);
+      const cardTextUpper = cardEl.text().toUpperCase();
 
-      // Estrae tutti i giocatori presenti SOLO all'interno di questa colonna squadra
-      $(teamBlock).find('a, .player-name, .player-item, [class*="player"], li').each((_, p) => {
-        // Ignora elementi che contengono altri sotto-elementi
-        if ($(p).children().length > 1) return;
+      // Trova quali squadre di Serie A sono citate nella card
+      const squadreInCard = SQUADRE_SERIE_A.filter((sq) => cardTextUpper.includes(sq));
+      if (squadreInCard.length === 0) continue;
 
-        const rawText = $(p).text() || '';
+      // Cerca i link o elementi di testo con nomi di calciatori (spesso con link /formazioni/ o classe player)
+      cardEl.find('a, .player-name, .player, span, li').each((_, p) => {
+        if ($(p).children().length > 0) return; // Solo nodi foglia
+
+        const rawText = $(p).text().trim();
+        if (!rawText || rawText.length < 3 || rawText.length > 25) return;
 
         let nomePulito = rawText
           .split('\n')[0]
@@ -72,27 +72,85 @@ export async function GET() {
         const contieneEsclusioni = PAROLE_DA_ESCLUDERE.some((term) => nomeUpper.includes(term));
 
         if (
+          !contieneEsclusioni &&
+          !nomePulito.includes('VS') &&
+          !/^\d+$/.test(nomePulito) &&
+          !/^\d[-\d]+\d$/.test(nomePulito) &&
+          !SQUADRE_SERIE_A.includes(nomeUpper) &&
+          nomePulito.split(' ').length <= 3
+        ) {
+          // Determina a quale delle squadre della card appartiene il nodo risalendo i genitori
+          let squadraAssegnata = squadreInCard[0]; // fallback prima squadra della card
+          const parentText = $(p).closest('div, ul, table, section').text().toUpperCase();
+
+          for (const sq of squadreInCard) {
+            if (parentText.includes(sq)) {
+              squadraAssegnata = sq;
+              break;
+            }
+          }
+
+          const chiaveUnica = `${nomePulito}-${squadraAssegnata}`;
+          if (!visti.has(chiaveUnica)) {
+            visti.add(chiaveUnica);
+            giocatoriMappati.push({ nome: nomePulito, squadra: squadraAssegnata });
+          }
+        }
+      });
+    }
+
+    // STRATEGIA 2: Fallback tramite scansione lineare se la strategia 1 non ha trovato abbastanza elementi
+    if (giocatoriMappati.length < 50) {
+      let squadraCorrente = '';
+
+      $('main, body').find('h1, h2, h3, h4, h5, h6, a, span, p, div, li').each((_, el) => {
+        if ($(el).children().length > 0) return;
+
+        const text = $(el).text().trim();
+        if (!text || text.length < 2) return;
+
+        const textUpper = text.toUpperCase();
+
+        // Se il testo corrisponde o contiene chiaramente il nome di una squadra di Serie A, aggiorna la squadra corrente
+        const squadraTrovata = SQUADRE_SERIE_A.find((s) => textUpper === s || textUpper.startsWith(s + ' ') || textUpper.endsWith(' ' + s));
+        if (squadraTrovata) {
+          squadraCorrente = squadraTrovata;
+          return;
+        }
+
+        if (!squadraCorrente) return;
+
+        let nomePulito = text
+          .split('\n')[0]
+          .replace(/^[PDCAR]\s+/i, '')
+          .replace(/\d+%/g, '')
+          .trim();
+
+        const nomeUpper = nomePulito.toUpperCase();
+        const contieneEsclusioni = PAROLE_DA_ESCLUDERE.some((term) => nomeUpper.includes(term));
+
+        if (
           nomePulito.length >= 3 &&
           nomePulito.length <= 25 &&
           !contieneEsclusioni &&
           !nomePulito.includes('VS') &&
-          !/^\d[-\d]+\d$/.test(nomePulito) &&
           !SQUADRE_SERIE_A.includes(nomeUpper) &&
-          isNaN(Number(nomePulito))
+          !/^\d+$/.test(nomePulito) &&
+          nomePulito.split(' ').length <= 3
         ) {
-          const chiaveUnica = `${nomePulito}-${squadraUfficiale}`;
+          const chiaveUnica = `${nomePulito}-${squadraCorrente}`;
           if (!visti.has(chiaveUnica)) {
             visti.add(chiaveUnica);
-            giocatoriMappati.push({ nome: nomePulito, squadra: squadraUfficiale });
+            giocatoriMappati.push({ nome: nomePulito, squadra: squadraCorrente });
           }
         }
       });
-    });
+    }
 
     if (giocatoriMappati.length === 0) {
       return NextResponse.json({
         success: false,
-        message: 'Impossibile estrarre le formazioni.',
+        message: 'Impossibile estrarre le formazioni. Verificare la struttura della pagina.',
       });
     }
 
@@ -135,7 +193,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      message: 'Sincronizzazione completata e pulita!',
+      message: 'Sincronizzazione completata con successo!',
       totaleGiocatoriMappati: giocatoriMappati.length,
       campione: giocatoriMappati.slice(0, 15),
     });
