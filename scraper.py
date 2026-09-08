@@ -22,7 +22,7 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 }
 
-# Lista ufficiale Serie A 2026/27
+# Lista ufficiale Serie A
 SQUADRE_SERIE_A = [
     'ATALANTA', 'BOLOGNA', 'CAGLIARI', 'COMO', 'FIORENTINA',
     'FROSINONE', 'GENOA', 'INTER', 'JUVENTUS', 'LAZIO',
@@ -43,6 +43,40 @@ def pulisci_nome(nome_grezzo):
     nome = re.sub(r'\s*\(.*?\)', '', nome).strip()
     return nome[:100]
 
+def estrai_giocatori_da_contenitore(container, nome_squadra):
+    dati = []
+    stato_attivo = "titolare"
+    
+    # Cerca tutti gli elementi figli del blocco squadra
+    elementi = container.find_all(['div', 'li', 'tr', 'p', 'span'])
+    for elem in elementi:
+        txt = elem.get_text(" ", strip=True)
+        txt_upper = txt.upper()
+
+        if "PANCHINA" in txt_upper:
+            stato_attivo = "panchina"
+            continue
+        elif "INDISPONIBILI" in txt_upper or "SQUALIFICATI" in txt_upper or "INFORTUNATI" in txt_upper:
+            stato_attivo = "indisponibile"
+            continue
+        elif "TITOLARI" in txt_upper:
+            stato_attivo = "titolare"
+            continue
+
+        match = re.search(r'([A-Za-zÀ-Úa-zà-ú\s\.\'\-]+)\s*\(?(\d{1,3})%\)?', txt)
+        if match:
+            nome = pulisci_nome(match.group(1))
+            perc = int(match.group(2))
+            
+            if 2 <= len(nome) <= 30 and nome.upper() not in SQUADRE_SERIE_A:
+                dati.append({
+                    "nome": nome,
+                    "squadra": nome_squadra,
+                    "stato": stato_attivo,
+                    "percentuale": perc
+                })
+    return dati
+
 def scarica_probabili_formazioni():
     print("🚀 Avvio scraping probabili formazioni...")
     url = "https://www.fantacalcio.it/probabili-formazioni-serie-a"
@@ -57,57 +91,35 @@ def scarica_probabili_formazioni():
     soup = BeautifulSoup(res.text, "html.parser")
     dati_estratti = []
 
-    # Cerchiamo le schede delle partite/squadre
+    # Cerchiamo le schede delle singole partite
     card_partite = soup.find_all('div', class_=re.compile(r'card|match|match-card|match-box', re.I))
-    
     if not card_partite:
-        # Fallback se le classi cambiano
         card_partite = soup.find_all('article') or soup.find_all('section')
 
     for card in card_partite:
-        testo_card = card.get_text(" ", strip=True)
+        # Cerchiamo i sotto-blocchi dedicati alla singola squadra all'interno del match
+        blocchi_squadre = card.find_all('div', class_=re.compile(r'team|squadra|club|team-box', re.I))
         
-        # Identifica le squadre presenti nel blocco
-        squadre_nel_blocco = [sq for sq in SQUADRE_SERIE_A if sq in testo_card.upper()]
-        if not squadre_nel_blocco:
-            continue
+        if len(blocchi_squadre) >= 2:
+            for blocco in blocchi_squadre:
+                testo_blocco = blocco.get_text(" ", strip=True).upper()
+                squadra_identificata = None
+                for sq in SQUADRE_SERIE_A:
+                    if sq in testo_blocco:
+                        squadra_identificata = sq
+                        break
+                
+                if squadra_identificata:
+                    dati_estratti.extend(estrai_giocatori_da_contenitore(blocco, squadra_identificata))
+        else:
+            # Fallback se non ci sono blocchi HTML separati per squadra
+            testo_card = card.get_text(" ", strip=True)
+            squadre_nel_blocco = [sq for sq in SQUADRE_SERIE_A if sq in testo_card.upper()]
+            if len(squadre_nel_blocco) == 1:
+                dati_estratti.extend(estrai_giocatori_da_contenitore(card, squadre_nel_blocco[0]))
 
-        # Cerca righe o blocchi contenenti giocatori e percentuali
-        righe = card.find_all(['li', 'tr', 'p', 'div', 'span'])
-        
-        for sq in squadre_nel_blocco:
-            stato_attivo = "titolare"
-            
-            for elem in righe:
-                txt = elem.get_text(" ", strip=True)
-                txt_upper = txt.upper()
-
-                if "PANCHINA" in txt_upper:
-                    stato_attivo = "panchina"
-                    continue
-                elif "INDISPONIBILI" in txt_upper or "SQUALIFICATI" in txt_upper or "INFORTUNATI" in txt_upper:
-                    stato_attivo = "indisponibile"
-                    continue
-                elif "TITOLARI" in txt_upper:
-                    stato_attivo = "titolare"
-                    continue
-
-                # Pattern per estrarre giocatore e percentuale (es. "Lautaro 80%" o "Lautaro (80%)")
-                match = re.search(r'([A-Za-zÀ-Úa-zà-ú\s\.\'\-]+)\s*\(?(\d{1,3})%\)?', txt)
-                if match:
-                    nome = pulisci_nome(match.group(1))
-                    perc = int(match.group(2))
-                    
-                    if 2 <= len(nome) <= 30 and nome.upper() not in SQUADRE_SERIE_A:
-                        dati_estratti.append({
-                            "nome": nome,
-                            "squadra": sq,
-                            "stato": stato_attivo,
-                            "percentuale": perc
-                        })
-
-    # Backup Parser Globale se il parser per card restituisce poche squadre
-    if len(set(g['squadra'] for g in dati_estratti)) < 15:
+    # Fallback globale se l'HTML della pagina cambia completamente
+    if len(set(g['squadra'] for g in dati_estratti)) < 10:
         squadra_attiva = None
         stato_attivo = "titolare"
 
@@ -118,7 +130,6 @@ def scarica_probabili_formazioni():
 
             line_upper = line_str.upper()
 
-            # Cambio squadra attiva
             for sq in SQUADRE_SERIE_A:
                 if line_upper == sq or line_upper.startswith(f"{sq} ") or line_upper.endswith(f" {sq}"):
                     squadra_attiva = sq
@@ -177,16 +188,14 @@ def salva_su_supabase(giocatori_data):
     squadre_db = supabase.table("squadre").select("id, nome").execute().data
     squadra_map = {s["nome"]: s["id"] for s in squadre_db}
 
-    # 2. Upsert Giocatori
+    # 2. Upsert Giocatori (aggiorna la squadra corretta per ciascun giocatore)
     giocatori_payload = []
-    nomi_inseriti = set()
     
     for g in giocatori_data:
         nome_comp = g["nome"][:100]
         squadra_id = squadra_map.get(g["squadra"])
         
-        if squadra_id and nome_comp.lower() not in nomi_inseriti:
-            nomi_inseriti.add(nome_comp.lower())
+        if squadra_id:
             giocatori_payload.append({
                 "nome_completo": nome_comp,
                 "squadra_id": squadra_id
