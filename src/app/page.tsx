@@ -37,7 +37,7 @@ export default function HomePage() {
   const [risultatoVerifica, setRisultatoVerifica] = useState<{
     totale: number;
     titolariCount: number;
-    dettagli: { nome: string; squadra: string; eTitolare: boolean }[];
+    dettagli: { nome: string; squadra: string; percentuale: number | null }[];
   } | null>(null);
 
   // 1. Carica la rosa dal localStorage all'avvio
@@ -231,14 +231,17 @@ export default function HomePage() {
     let titolari = 0;
     const dettagli = miaRosa.map((g) => {
       const listaSquadra = squadreMappa[g.squadra] || [];
-      const eTitolare = listaSquadra.some(
-        (titolare) => titolare.nome.toLowerCase() === g.nome_completo.toLowerCase()
+      const trovato = listaSquadra.find(
+        (item) => item.nome.toLowerCase() === g.nome_completo.toLowerCase()
       );
-      if (eTitolare) titolari++;
+      
+      const perc = trovato ? trovato.percentuale : null;
+      if (perc !== null && perc > 0) titolari++;
+
       return {
         nome: g.nome_completo,
         squadra: g.squadra,
-        eTitolare,
+        percentuale: perc,
       };
     });
 
@@ -405,13 +408,13 @@ export default function HomePage() {
                         <td className="px-4 py-2.5 text-amber-300/80">{g.squadra}</td>
                         <td className="px-4 py-2.5 text-center">
                           {infoVerifica ? (
-                            infoVerifica.eTitolare ? (
-                              <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full text-xs font-bold">
-                                TITOLARE
+                            infoVerifica.percentuale !== null ? (
+                              <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full text-xs font-bold font-mono">
+                                {infoVerifica.percentuale}%
                               </span>
                             ) : (
                               <span className="bg-rose-500/10 text-rose-400 border border-rose-500/20 px-3 py-1 rounded-full text-xs font-bold">
-                                PANCHINA / RISERVA
+                                Non in formazione
                               </span>
                             )
                           ) : (
@@ -452,7 +455,7 @@ export default function HomePage() {
 
               {risultatoVerifica && (
                 <div className="bg-slate-900 border border-amber-500/30 px-5 py-2.5 rounded-lg text-sm font-semibold text-amber-300">
-                  Risultato: {risultatoVerifica.titolariCount} su {risultatoVerifica.totale} giocatori sono Titolari!
+                  Risultato: {risultatoVerifica.titolariCount} su {risultatoVerifica.totale} giocatori presenti in formazione!
                 </div>
               )}
             </div>
