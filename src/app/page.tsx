@@ -23,9 +23,11 @@ export default function HomePage() {
   const [messaggio, setMessaggio] = useState<string>('');
 
   // 1. Funzione per leggere i giocatori salvati su Supabase
-  const caricaFormazioni = async () => {
-    setLoadingData(true);
-    setMessaggio('📥 Caricamento dati da Supabase in corso...');
+  const caricaFormazioni = async (silent = false) => {
+    if (!silent) {
+      setLoadingData(true);
+      setMessaggio('📥 Caricamento dati da Supabase in corso...');
+    }
 
     try {
       const { data, error } = await supabase
@@ -47,13 +49,19 @@ export default function HomePage() {
 
       if (data) {
         setFormazioni(data as unknown as FormazioneGiocatore[]);
-        setMessaggio(`✅ Caricati ${data.length} giocatori con successo!`);
+        if (!silent) {
+          setMessaggio(`✅ Caricati ${data.length} giocatori con successo!`);
+        }
       }
     } catch (err: any) {
-      setMessaggio(`❌ Errore caricamento: ${err.message}`);
+      if (!silent) {
+        setMessaggio(`❌ Errore caricamento: ${err.message}`);
+      }
     } finally {
-      setLoadingData(false);
-      setTimeout(() => setMessaggio(''), 5000);
+      if (!silent) {
+        setLoadingData(false);
+        setTimeout(() => setMessaggio(''), 5000);
+      }
     }
   };
 
@@ -61,30 +69,66 @@ export default function HomePage() {
     caricaFormazioni();
   }, []);
 
-  // 2. Funzione per lanciare scraper.py (da usare in locale / Codespaces)
+  // 2. Funzione per lanciare lo scraper con Polling attivo su Supabase
   const avviaScraping = async () => {
     setLoadingScrape(true);
-    setMessaggio('🚀 Esecuzione di scraper.py in corso...');
+    setMessaggio('🚀 Avvio di GitHub Actions in corso...');
 
     try {
+      // Conta i record attuali prima di lanciare lo scraper
+      const { count: initialCount } = await supabase
+        .from('probabili_formazioni')
+        .select('*', { count: 'exact', head: true });
+
       const res = await fetch('/api/scrape', { method: 'POST' });
       const contentType = res.headers.get('content-type');
 
       if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Ambiente non compatibile (Python non presente su Vercel). Esegui scraper.py da terminale.');
+        throw new Error('Ambiente non compatibile. Esegui lo scraper da ambiente locale.');
       }
 
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Errore durante lo scraping.');
+        throw new Error(data.error || 'Errore durante l\'avvio dello scraping.');
       }
 
-      setMessaggio('✅ Scraping completato! Clicca su "Mostra Giocatori" per aggiornare la vista.');
+      setMessaggio('⏳ Scraper avviato su GitHub Actions. Attendi l\'elaborazione dei dati...');
+
+      // Pausa iniziale di 15 secondi per dare tempo a GitHub di preparare il runner
+      await new Promise((resolve) => setTimeout(resolve, 15000));
+
+      // Inizio del polling: controlla ogni 4 secondi se il database si è aggiornato
+      let tentativi = 0;
+      const maxTentativi = 12; // Limite massimo: circa 48 secondi di polling dopo la pausa
+      let completato = false;
+
+      while (tentativi < maxTentativi && !completato) {
+        tentativi++;
+        setMessaggio(`⏳ Verifica aggiornamento dati su Supabase (tentativo ${tentativi}/${maxTentativi})...`);
+
+        const { count: currentCount } = await supabase
+          .from('probabili_formazioni')
+          .select('*', { count: 'exact', head: true });
+
+        // Se i record sono variati oppure se si tratta di un aggiornamento di dati esistenti
+        if (currentCount !== null && currentCount !== initialCount) {
+          completato = true;
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+      }
+
+      // Ricarica automaticamente la lista a schermo
+      await caricaFormazioni(true);
+      setMessaggio('✅ Scraping e aggiornamento completati con successo!');
+
     } catch (err: any) {
       setMessaggio(`❌ ${err.message}`);
     } finally {
       setLoadingScrape(false);
+      setTimeout(() => setMessaggio(''), 7000);
     }
   };
 
@@ -114,12 +158,12 @@ export default function HomePage() {
               loadingScrape ? 'bg-slate-600 cursor-not-allowed' : 'bg-amber-400 hover:bg-amber-300 active:scale-95'
             }`}
           >
-            {loadingScrape ? '⏳ Scraping in corso...' : '🐍 Lancia scraper.py'}
+            {loadingScrape ? '⏳ Elaborazione in corso...' : '🐍 Lancia scraper.py'}
           </button>
 
           {/* Pulsante 2: Mostra / Ricarica Giocatori */}
           <button
-            onClick={caricaFormazioni}
+            onClick={() => caricaFormazioni()}
             disabled={loadingData}
             className={`px-5 py-2.5 rounded-lg font-bold text-sm text-white transition-all shadow-md border border-slate-700 flex items-center gap-2 ${
               loadingData ? 'bg-slate-800 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-700 active:scale-95'
@@ -132,7 +176,7 @@ export default function HomePage() {
 
       {/* Messaggio di stato */}
       {messaggio && (
-        <div className="max-w-7xl mx-auto mb-6 p-4 rounded-lg bg-slate-900 border border-slate-800 text-center font-medium text-amber-300">
+        <div className="max-w-7xl mx-auto mb-6 p-4 rounded-lg bg-slate-900 border border-slate-800 text-center font-medium text-amber-300 transition-all">
           {messaggio}
         </div>
       )}
