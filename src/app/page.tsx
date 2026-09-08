@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import PitchBuilder from '@/components/PitchBuilder';
 
 interface GiocatoreFormazione {
   nome: string;
@@ -129,7 +130,7 @@ export default function HomePage() {
       const result = await res.json();
 
       if (!res.ok || !result.success) {
-        throw new Error(result.error || 'Errore durante l\'esecuzione dello script Python');
+        throw new Error(result.error || "Errore durante l'esecuzione dello script Python");
       }
 
       setMessaggio('✅ Formazioni aggiornate con successo tramite scraper.py!');
@@ -286,6 +287,9 @@ export default function HomePage() {
           {messaggio}
         </div>
       )}
+
+      {/* SCHERMATA CAMPO E FORMAZIONE */}
+      <PitchBuilder rosa={miaRosa} />
 
       {/* SEZIONE GESTIONE ROSA CON SALVATAGGIO PERMANENTE */}
       <section className="max-w-6xl mx-auto mb-10 bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl">
