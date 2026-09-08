@@ -43,12 +43,14 @@ export default function HomePage() {
 
   // 1. Carica la rosa dal localStorage all'avvio
   useEffect(() => {
-    const rosaSalvata = localStorage.getItem(STORAGE_KEY);
-    if (rosaSalvata) {
-      try {
-        setMiaRosa(JSON.parse(rosaSalvata));
-      } catch (e) {
-        console.error('Errore durante il recupero della rosa salvata', e);
+    if (typeof window !== 'undefined') {
+      const rosaSalvata = localStorage.getItem(STORAGE_KEY);
+      if (rosaSalvata) {
+        try {
+          setMiaRosa(JSON.parse(rosaSalvata));
+        } catch (e) {
+          console.error('Errore durante il recupero della rosa salvata', e);
+        }
       }
     }
   }, []);
@@ -56,7 +58,9 @@ export default function HomePage() {
   // 2. Salva la rosa nel localStorage ogni volta che viene modificata
   const aggiornaESalvaRosa = (nuovaRosa: GiocatoreOption[]) => {
     setMiaRosa(nuovaRosa);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nuovaRosa));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nuovaRosa));
+    }
   };
 
   // Caricamento dati da Supabase
@@ -134,7 +138,7 @@ export default function HomePage() {
       }
 
       setMessaggio('✅ Formazioni aggiornate con successo tramite scraper.py!');
-      
+
       // Ricarica i dati appena salvati da Supabase
       await caricaFormazioni();
     } catch (err: any) {
@@ -235,7 +239,7 @@ export default function HomePage() {
       const trovato = listaSquadra.find(
         (item) => item.nome.toLowerCase() === g.nome_completo.toLowerCase()
       );
-      
+
       const perc = trovato ? trovato.percentuale : null;
       if (perc !== null && perc > 0) titolari++;
 
