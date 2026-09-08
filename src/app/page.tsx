@@ -18,11 +18,15 @@ interface FormazioneGiocatore {
 
 export default function HomePage() {
   const [formazioni, setFormazioni] = useState<FormazioneGiocatore[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loadingScrape, setLoadingScrape] = useState<boolean>(false);
+  const [loadingData, setLoadingData] = useState<boolean>(false);
   const [messaggio, setMessaggio] = useState<string>('');
 
-  // Funzione per caricare le formazioni salvate da Supabase
+  // 1. Funzione per leggere i giocatori salvati su Supabase
   const caricaFormazioni = async () => {
+    setLoadingData(true);
+    setMessaggio('📥 Caricamento dati da Supabase in corso...');
+
     try {
       const { data, error } = await supabase
         .from('probabili_formazioni')
@@ -38,15 +42,18 @@ export default function HomePage() {
         `);
 
       if (error) {
-        console.error('Errore nel caricamento da Supabase:', error.message);
-        return;
+        throw new Error(error.message);
       }
 
       if (data) {
         setFormazioni(data as unknown as FormazioneGiocatore[]);
+        setMessaggio(`✅ Caricati ${data.length} giocatori con successo!`);
       }
-    } catch (err) {
-      console.error('Errore imprevisto:', err);
+    } catch (err: any) {
+      setMessaggio(`❌ Errore caricamento: ${err.message}`);
+    } finally {
+      setLoadingData(false);
+      setTimeout(() => setMessaggio(''), 5000);
     }
   };
 
@@ -54,36 +61,34 @@ export default function HomePage() {
     caricaFormazioni();
   }, []);
 
-  // Funzione attivata dal pulsante per lanciare scraper.py
+  // 2. Funzione per lanciare scraper.py (da usare in locale / Codespaces)
   const avviaScraping = async () => {
-    setLoading(true);
-    setMessaggio('🚀 Esecuzione di scraper.py e aggiornamento database in corso...');
+    setLoadingScrape(true);
+    setMessaggio('🚀 Esecuzione di scraper.py in corso...');
 
     try {
       const res = await fetch('/api/scrape', { method: 'POST' });
       const contentType = res.headers.get('content-type');
 
       if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Il server non ha restituito una risposta JSON valida.');
+        throw new Error('Ambiente non compatibile (Python non presente su Vercel). Esegui scraper.py da terminale.');
       }
 
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Errore durante l\'aggiornamento.');
+        throw new Error(data.error || 'Errore durante lo scraping.');
       }
 
-      setMessaggio('✅ Formazioni e percentuali aggiornate con successo!');
-      await caricaFormazioni(); // Ricarica subito la lista aggiornata
+      setMessaggio('✅ Scraping completato! Clicca su "Mostra Giocatori" per aggiornare la vista.');
     } catch (err: any) {
       setMessaggio(`❌ ${err.message}`);
     } finally {
-      setLoading(false);
-      setTimeout(() => setMessaggio(''), 6000);
+      setLoadingScrape(false);
     }
   };
 
-  // Raggruppiamo i giocatori per squadra
+  // Raggruppamento giocatori per squadra
   const squadreRaggruppate = formazioni.reduce((acc, f) => {
     const nomeSquadra = f.giocatori?.squadre?.nome || 'Altre';
     if (!acc[nomeSquadra]) acc[nomeSquadra] = [];
@@ -93,36 +98,50 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
-      {/* Intestazione e Pulsante */}
+      {/* Intestazione e Pulsanti */}
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-extrabold text-amber-400">Probabili Formazioni Serie A</h1>
-          <p className="text-slate-400 text-sm">Monitoraggio aggiornato con percentuali di titolarità</p>
+          <p className="text-slate-400 text-sm">Pannello di controllo e visualizzazione percentuali</p>
         </div>
 
-        <button
-          onClick={avviaScraping}
-          disabled={loading}
-          className={`px-6 py-3 rounded-lg font-bold text-sm text-slate-950 transition-all shadow-lg flex items-center gap-2 ${
-            loading ? 'bg-slate-600 cursor-not-allowed' : 'bg-amber-400 hover:bg-amber-300 active:scale-95'
-          }`}
-        >
-          {loading ? '⏳ Aggiornamento in corso...' : '🚀 Aggiorna Probabili Formazioni'}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Pulsante 1: Lancia Scraper */}
+          <button
+            onClick={avviaScraping}
+            disabled={loadingScrape}
+            className={`px-5 py-2.5 rounded-lg font-bold text-sm text-slate-950 transition-all shadow-md flex items-center gap-2 ${
+              loadingScrape ? 'bg-slate-600 cursor-not-allowed' : 'bg-amber-400 hover:bg-amber-300 active:scale-95'
+            }`}
+          >
+            {loadingScrape ? '⏳ Scraping in corso...' : '🐍 Lancia scraper.py'}
+          </button>
+
+          {/* Pulsante 2: Mostra / Ricarica Giocatori */}
+          <button
+            onClick={caricaFormazioni}
+            disabled={loadingData}
+            className={`px-5 py-2.5 rounded-lg font-bold text-sm text-white transition-all shadow-md border border-slate-700 flex items-center gap-2 ${
+              loadingData ? 'bg-slate-800 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-700 active:scale-95'
+            }`}
+          >
+            {loadingData ? '⏳ Caricamento...' : '📋 Mostra Giocatori'}
+          </button>
+        </div>
       </div>
 
       {/* Messaggio di stato */}
       {messaggio && (
-        <div className="max-w-7xl mx-auto mb-6 p-4 rounded-lg bg-slate-800 border border-slate-700 text-center font-medium">
+        <div className="max-w-7xl mx-auto mb-6 p-4 rounded-lg bg-slate-900 border border-slate-800 text-center font-medium text-amber-300">
           {messaggio}
         </div>
       )}
 
-      {/* Sezione Squadre e Giocatori */}
+      {/* Griglia Squadre e Giocatori */}
       <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {Object.keys(squadreRaggruppate).length === 0 ? (
           <div className="col-span-full text-center text-slate-500 py-12">
-            Nessuna formazione presente. Clicca su &quot;Aggiorna Probabili Formazioni&quot; per avviare lo scraper.
+            Nessun giocatore da mostrare. Clicca su &quot;Mostra Giocatori&quot; per caricare i dati.
           </div>
         ) : (
           Object.entries(squadreRaggruppate).map(([squadra, giocatori]) => (
@@ -142,19 +161,17 @@ export default function HomePage() {
                         <span className="ml-2 text-xs text-slate-400 uppercase">({item.giocatori.ruolo})</span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-xs px-2 py-1 rounded font-bold ${
-                          item.percentuale_titolarita >= 70
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : item.percentuale_titolarita >= 50
-                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                            : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                        }`}
-                      >
-                        {item.percentuale_titolarita}%
-                      </span>
-                    </div>
+                    <span
+                      className={`text-xs px-2 py-1 rounded font-bold ${
+                        item.percentuale_titolarita >= 70
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : item.percentuale_titolarita >= 50
+                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                          : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                      }`}
+                    >
+                      {item.percentuale_titolarita}%
+                    </span>
                   </li>
                 ))}
               </ul>
