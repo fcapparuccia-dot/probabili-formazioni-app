@@ -2,7 +2,11 @@ import os
 import re
 import requests
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 from supabase import create_client, Client
+
+# Carica le variabili da .env.local
+load_dotenv('.env.local')
 
 # --- CONFIGURAZIONE SUPABASE ---
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL", "https://qozjlebecpjcmbmafnjy.supabase.co")
