@@ -1,35 +1,37 @@
 import { NextResponse } from 'next/server';
-import { exec } from 'child_process';
-import path from 'path';
 
 export async function POST() {
-  return new Promise((resolve) => {
-    // Individua il percorso assoluto della radice del progetto
-    const projectRoot = process.cwd();
-    
-    // Comando per eseguire lo script Python (adatta 'python' in 'python3' se necessario)
-    const command = `python ${path.join(projectRoot, 'scraper.py')}`;
+  try {
+    // Sostituisci questo URL con quello esatto generato da Render
+    const RENDER_SCRAPER_URL = 'https://fantacalcio-scraper.onrender.com/run-scraper';
 
-    exec(command, { cwd: projectRoot }, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`Errore esecuzione scraper.py: ${error.message}`);
-        console.error(`Stderr: ${stderr}`);
-        return resolve(
-          NextResponse.json(
-            { success: false, error: stderr || error.message },
-            { status: 500 }
-          )
-        );
-      }
+    console.log('📡 Invio richiesta di scraping al server Python su Render...');
 
-      console.log(`Output scraper.py: ${stdout}`);
-      return resolve(
-        NextResponse.json({
-          success: true,
-          message: 'Scraper Python eseguito con successo!',
-          output: stdout,
-        })
-      );
+    const response = await fetch(RENDER_SCRAPER_URL, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      // Impostiamo il revalidate a 0 per evitare cache
+      cache: 'no-store',
     });
-  });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || data.message || 'Errore durante lo scraping su Render');
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Scraper Python eseguito con successo tramite Render!',
+      data: data,
+    });
+  } catch (error: any) {
+    console.error('❌ Errore API Scrape:', error);
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 }
+    );
+  }
 }
