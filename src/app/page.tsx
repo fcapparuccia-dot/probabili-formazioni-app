@@ -23,6 +23,12 @@ interface Partita {
   giocatoriOspite: GiocatoreProbabile[];
 }
 
+interface GiocatoreDB {
+  id: string;
+  nome_completo: string;
+  squadra: string;
+}
+
 export default function ProbabiliFormazioniPage() {
   const [partite, setPartite] = useState<Partita[]>([]);
   const [miaFormazione, setMiaFormazione] = useState<{
@@ -30,6 +36,13 @@ export default function ProbabiliFormazioniPage() {
     panchina: GiocatoreProbabile[];
   }>({ titolari: [], panchina: [] });
   const [loading, setLoading] = useState(true);
+
+  // Gestione Modale e Ricerca Giocatori
+  const [isGestioneOpen, setIsGestioneOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<GiocatoreDB[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [tuttiGiocatoriMap, setTuttiGiocatoriMap] = useState<Map<string, GiocatoreProbabile>>(new Map());
 
   useEffect(() => {
     caricaDati();
@@ -57,29 +70,38 @@ export default function ProbabiliFormazioniPage() {
       return;
     }
 
-    // Mappatura dati giocatori
-    const tuttiGiocatori: (GiocatoreProbabile & { squadra_id?: string })[] = [];
-    
+    const tuttiGiocatori: GiocatoreProbabile[] = [];
+    const map = new Map<string, GiocatoreProbabile>();
+
     pfData?.forEach((item: any) => {
       if (item.giocatori) {
-        tuttiGiocatori.push({
+        const gObj: GiocatoreProbabile = {
           id: item.giocatori.id,
           nome_completo: item.giocatori.nome_completo,
           squadra: item.giocatori.squadre?.nome || "SCONOSCIUTA",
           percentuale: item.percentuale_titolarita,
           stato: item.stato,
-        });
+        };
+        tuttiGiocatori.push(gObj);
+        map.set(item.giocatori.id, gObj);
       }
     });
 
-    // Raggruppa i giocatori per partite (a coppie di squadre)
+    setTuttiGiocatoriMap(map);
+
+    // Raggruppa i giocatori per partite
     const partiteRaggruppate = creaStrutturaPartite(tuttiGiocatori);
     setPartite(partiteRaggruppate);
 
-    // 2. Recupera "La Mia Formazione" dal database
+    await ricaricaMiaFormazione(map);
+    setLoading(false);
+  }
+
+  async function ricaricaMiaFormazione(mapGiocatori = tuttiGiocatoriMap) {
     const { data: miaFormData } = await supabase
       .from("mia_formazione")
       .select(`
+        id,
         posizione,
         ordine,
         giocatori (
@@ -95,12 +117,11 @@ export default function ProbabiliFormazioniPage() {
       const panchina: GiocatoreProbabile[] = [];
 
       miaFormData.forEach((row: any) => {
-        const infoScraper = tuttiGiocatori.find(
-          (g) => g.id === row.giocatori?.id
-        );
+        const gId = row.giocatori?.id;
+        const infoScraper = mapGiocatori.get(gId);
 
         const gObj: GiocatoreProbabile = {
-          id: row.giocatori?.id,
+          id: gId,
           nome_completo: row.giocatori?.nome_completo || "Sconosciuto",
           squadra: row.giocatori?.squadre?.nome || "",
           percentuale: infoScraper ? infoScraper.percentuale : 0,
@@ -116,11 +137,8 @@ export default function ProbabiliFormazioniPage() {
 
       setMiaFormazione({ titolari, panchina });
     }
-
-    setLoading(false);
   }
 
-  // Funzione di supporto per raggruppare i giocatori nelle partite
   function creaStrutturaPartite(giocatori: GiocatoreProbabile[]): Partita[] {
     const squadrePresenti = Array.from(new Set(giocatori.map((g) => g.squadra)));
     const listaPartite: Partita[] = [];
@@ -141,9 +159,64 @@ export default function ProbabiliFormazioniPage() {
     return listaPartite;
   }
 
+  // Cerca calciatori nel database
+  async function cercaGiocatori(query: string) {
+    setSearchQuery(query);
+    if (query.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    const { data, error } = await supabase
+      .from("giocatori")
+      .select(`
+        id,
+        nome_completo,
+        squadre ( nome )
+      `)
+      .ilike("nome_completo", `%${query}%`)
+      .limit(10);
+
+    if (!error && data) {
+      setSearchResults(
+        data.map((item: any) => ({
+          id: item.id,
+          nome_completo: item.nome_completo,
+          squadra: item.squadre?.nome || "",
+        }))
+      );
+    }
+    setIsSearching(false);
+  }
+
+  // Aggiungi un giocatore a mia_formazione
+  async function aggiungiGiocatore(giocatoreId: string, posizione: "TITOLARE" | "PANCHINA") {
+    const ordine = posizione === "PANCHINA" ? miaFormazione.panchina.length + 1 : 0;
+
+    await supabase.from("mia_formazione").upsert(
+      {
+        giocatore_id: giocatoreId,
+        posizione: posizione,
+        ordine: ordine,
+      },
+      { onConflict: "giocatore_id" }
+    );
+
+    setSearchQuery("");
+    setSearchResults([]);
+    await ricaricaMiaFormazione();
+  }
+
+  // Rimuovi un giocatore da mia_formazione
+  async function rimuoviGiocatore(giocatoreId: string) {
+    await supabase.from("mia_formazione").delete().eq("giocatore_id", giocatoreId);
+    await ricaricaMiaFormazione();
+  }
+
   if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-screen bg-slate-900 text-white">
+      <div className="flex justify-center items-center min-h-screen bg-slate-950 text-white">
         <p className="text-xl animate-pulse">Caricamento probabili formazioni in corso...</p>
       </div>
     );
@@ -165,18 +238,75 @@ export default function ProbabiliFormazioniPage() {
         
         {/* ================= SEZIONE LA MIA FORMAZIONE ================= */}
         <section className="bg-slate-900 border-2 border-amber-500/50 rounded-2xl p-5 shadow-xl">
-          <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
+          <div className="flex flex-wrap items-center justify-between mb-4 border-b border-slate-800 pb-3 gap-2">
             <h2 className="text-2xl font-bold text-amber-400 flex items-center gap-2">
               ⭐ La Mia Formazione
             </h2>
-            <span className="text-xs bg-amber-500/20 text-amber-300 px-3 py-1 rounded-full border border-amber-500/30">
-              Personalizzata
-            </span>
+            <button
+              onClick={() => setIsGestioneOpen(!isGestioneOpen)}
+              className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-sm px-4 py-2 rounded-lg transition-all shadow-md"
+            >
+              {isGestioneOpen ? "✖ Chiudi Gestione" : "✏️ Gestisci Formazione"}
+            </button>
           </div>
 
+          {/* PANNELLO DI INSERIMENTO / RICERCA */}
+          {isGestioneOpen && (
+            <div className="mb-6 p-4 bg-slate-950 rounded-xl border border-amber-500/30 space-y-4 animate-fadeIn">
+              <h3 className="text-sm font-semibold text-amber-300 uppercase tracking-wider">
+                Aggiungi Giocatore alla tua Rosa
+              </h3>
+              
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Cerca un giocatore per nome (es: Lautaro, Barella)..."
+                  value={searchQuery}
+                  onChange={(e) => cercaGiocatori(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                />
+
+                {/* RISULTATI DELLA RICERCA */}
+                {searchResults.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-h-60 overflow-y-auto">
+                    {searchResults.map((g) => (
+                      <div
+                        key={g.id}
+                        className="flex justify-between items-center px-4 py-2.5 border-b border-slate-800/80 hover:bg-slate-800/50"
+                      >
+                        <div>
+                          <span className="font-semibold text-white">{g.nome_completo}</span>
+                          <span className="text-xs text-slate-400 ml-2">({g.squadra})</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => aggiungiGiocatore(g.id, "TITOLARE")}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-2.5 py-1 rounded font-bold"
+                          >
+                            + Titolare
+                          </button>
+                          <button
+                            onClick={() => aggiungiGiocatore(g.id, "PANCHINA")}
+                            className="bg-amber-600 hover:bg-amber-500 text-white text-xs px-2.5 py-1 rounded font-bold"
+                          >
+                            + Panchina
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {isSearching && (
+                  <p className="text-xs text-slate-400 mt-1">Ricerca in corso...</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* VISUALIZZAZIONE TITOLARI / PANCHINA */}
           {miaFormazione.titolari.length === 0 && miaFormazione.panchina.length === 0 ? (
-            <p className="text-slate-500 text-sm italic text-center py-4">
-              Nessun giocatore inserito in "mia_formazione" nel database.
+            <p className="text-slate-500 text-sm italic text-center py-6">
+              Nessun giocatore in formazione. Clicca su <strong>"Gestisci Formazione"</strong> in alto per aggiungere i tuoi calciatori!
             </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -195,7 +325,18 @@ export default function ProbabiliFormazioniPage() {
                         <span className="font-semibold text-white">{g.nome_completo}</span>
                         <span className="text-xs text-slate-500 ml-2">({g.squadra})</span>
                       </div>
-                      <BadgePercentuale perc={g.percentuale} />
+                      <div className="flex items-center gap-3">
+                        <BadgePercentuale perc={g.percentuale} />
+                        {isGestioneOpen && (
+                          <button
+                            onClick={() => rimuoviGiocatore(g.id)}
+                            className="text-rose-500 hover:text-rose-400 font-bold text-xs"
+                            title="Rimuovi"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -217,7 +358,18 @@ export default function ProbabiliFormazioniPage() {
                         <span className="font-semibold text-slate-200">{g.nome_completo}</span>
                         <span className="text-xs text-slate-500 ml-2">({g.squadra})</span>
                       </div>
-                      <BadgePercentuale perc={g.percentuale} />
+                      <div className="flex items-center gap-3">
+                        <BadgePercentuale perc={g.percentuale} />
+                        {isGestioneOpen && (
+                          <button
+                            onClick={() => rimuoviGiocatore(g.id)}
+                            className="text-rose-500 hover:text-rose-400 font-bold text-xs"
+                            title="Rimuovi"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -248,19 +400,14 @@ export default function ProbabiliFormazioniPage() {
 
               {/* CONTENUTO SCHEDA - DUE COLONNE */}
               <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
-                
-                {/* SQUADRA CASA */}
                 <ColonnaSquadra
                   squadraNome={partita.squadraCasa}
                   giocatori={partita.giocatoriCasa}
                 />
-
-                {/* SQUADRA OSPITE */}
                 <ColonnaSquadra
                   squadraNome={partita.squadraOspite}
                   giocatori={partita.giocatoriOspite}
                 />
-
               </div>
             </div>
           ))}
