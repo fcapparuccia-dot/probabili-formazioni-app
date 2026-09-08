@@ -1,0 +1,27 @@
+name: Esegui Scraper via Webhook
+
+on:
+  repository_dispatch:
+    types: [run-scraper]
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Configura Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Installa Dipendenze
+        run: |
+          pip install requests beautifulsoup4 supabase
+
+      - name: Esegui Scraper Python
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python scraper.py
