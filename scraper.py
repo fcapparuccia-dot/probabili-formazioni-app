@@ -5,10 +5,10 @@ from bs4 import BeautifulSoup
 from supabase import create_client, Client
 
 # --- CONFIGURAZIONE SUPABASE ---
-# Recupera le credenziali direttamente dalle variabili d'ambiente (.env o ambiente di sistema)
-SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL", "https://qozjlebecpjcmbmafnjy.supabase.co")
+SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL", "https://qozjlebecpjcmbmafnjy.supabase.co")
 SUPABASE_KEY = (
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    os.getenv("SUPABASE_KEY")
+    or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
     or ""
 )
