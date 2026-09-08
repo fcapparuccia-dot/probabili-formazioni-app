@@ -5,7 +5,6 @@ from bs4 import BeautifulSoup
 from supabase import create_client, Client
 
 # --- CONFIGURAZIONE SUPABASE ---
-# Recupera le credenziali direttamente dalle variabili d'ambiente (.env o ambiente di sistema)
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL", "https://qozjlebecpjcmbmafnjy.supabase.co")
 SUPABASE_KEY = (
     os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -36,12 +35,20 @@ MAPPING_STATO = {
     "indisponibile": "indisponibile"
 }
 
-def pulisci_nome(nome_grezzo):
+def estrai_ruolo_e_nome(nome_grezzo):
+    """
+    Estrae il ruolo (P, D, C, A) se presente all'inizio della stringa
+    e restituisce la tupla (ruolo, nome_pulito).
+    """
     if not nome_grezzo:
-        return ""
+        return "N/D", ""
+    
+    match_ruolo = re.match(r'^\s*([PDCA])\s+', nome_grezzo, flags=re.IGNORECASE)
+    ruolo = match_ruolo.group(1).upper() if match_ruolo else "N/D"
+
     nome = re.sub(r'^[PDCAR]\s+', '', nome_grezzo, flags=re.IGNORECASE).strip()
     nome = re.sub(r'\s*\(.*?\)', '', nome).strip()
-    return nome[:100]
+    return ruolo, nome[:100]
 
 def scarica_probabili_formazioni():
     print("🚀 Avvio scraping probabili formazioni...")
@@ -57,22 +64,18 @@ def scarica_probabili_formazioni():
     soup = BeautifulSoup(res.text, "html.parser")
     dati_estratti = []
 
-    # Cerchiamo le schede delle partite/squadre
     card_partite = soup.find_all('div', class_=re.compile(r'card|match|match-card|match-box', re.I))
     
     if not card_partite:
-        # Fallback se le classi cambiano
         card_partite = soup.find_all('article') or soup.find_all('section')
 
     for card in card_partite:
         testo_card = card.get_text(" ", strip=True)
         
-        # Identifica le squadre presenti nel blocco
         squadre_nel_blocco = [sq for sq in SQUADRE_SERIE_A if sq in testo_card.upper()]
         if not squadre_nel_blocco:
             continue
 
-        # Cerca righe o blocchi contenenti giocatori e percentuali
         righe = card.find_all(['li', 'tr', 'p', 'div', 'span'])
         
         for sq in squadre_nel_blocco:
@@ -92,21 +95,20 @@ def scarica_probabili_formazioni():
                     stato_attivo = "titolare"
                     continue
 
-                # Pattern per estrarre giocatore e percentuale (es. "Lautaro 80%" o "Lautaro (80%)")
                 match = re.search(r'([A-Za-zÀ-Úa-zà-ú\s\.\'\-]+)\s*\(?(\d{1,3})%\)?', txt)
                 if match:
-                    nome = pulisci_nome(match.group(1))
+                    ruolo, nome = estrai_ruolo_e_nome(match.group(1))
                     perc = int(match.group(2))
                     
                     if 2 <= len(nome) <= 30 and nome.upper() not in SQUADRE_SERIE_A:
                         dati_estratti.append({
                             "nome": nome,
+                            "ruolo": ruolo,
                             "squadra": sq,
                             "stato": stato_attivo,
                             "percentuale": perc
                         })
 
-    # Backup Parser Globale se il parser per card restituisce poche squadre
     if len(set(g['squadra'] for g in dati_estratti)) < 15:
         squadra_attiva = None
         stato_attivo = "titolare"
@@ -118,7 +120,6 @@ def scarica_probabili_formazioni():
 
             line_upper = line_str.upper()
 
-            # Cambio squadra attiva
             for sq in SQUADRE_SERIE_A:
                 if line_upper == sq or line_upper.startswith(f"{sq} ") or line_upper.endswith(f" {sq}"):
                     squadra_attiva = sq
@@ -137,11 +138,12 @@ def scarica_probabili_formazioni():
 
             match = re.search(r'([A-Za-zÀ-Úa-zà-ú\s\.\'\-]+)\s+(\d{1,3})%', line_str)
             if match:
-                nome = pulisci_nome(match.group(1))
+                ruolo, nome = estrai_ruolo_e_nome(match.group(1))
                 perc = int(match.group(2))
                 if 2 <= len(nome) <= 30 and nome.upper() not in SQUADRE_SERIE_A:
                     dati_estratti.append({
                         "nome": nome,
+                        "ruolo": ruolo,
                         "squadra": squadra_attiva,
                         "stato": stato_attivo,
                         "percentuale": perc
@@ -177,7 +179,7 @@ def salva_su_supabase(giocatori_data):
     squadre_db = supabase.table("squadre").select("id, nome").execute().data
     squadra_map = {s["nome"]: s["id"] for s in squadre_db}
 
-    # 2. Upsert Giocatori
+    # 2. Upsert Giocatori (ora include il campo "ruolo")
     giocatori_payload = []
     nomi_inseriti = set()
     
@@ -189,6 +191,7 @@ def salva_su_supabase(giocatori_data):
             nomi_inseriti.add(nome_comp.lower())
             giocatori_payload.append({
                 "nome_completo": nome_comp,
+                "ruolo": g["ruolo"],
                 "squadra_id": squadra_id
             })
 
