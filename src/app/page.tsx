@@ -1,228 +1,359 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-interface FormazioneGiocatore {
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+interface GiocatoreProbabile {
   id: string;
-  percentuale_titolarita: number;
-  stato: string;
-  giocatori: {
-    nome_completo: string;
-    ruolo?: string;
-    squadre?: {
-      nome: string;
-    };
-  };
+  nome_completo: string;
+  squadra: string;
+  percentuale: number;
+  stato: "titolare" | "panchina" | "indisponibile";
 }
 
-export default function HomePage() {
-  const [formazioni, setFormazioni] = useState<FormazioneGiocatore[]>([]);
-  const [loadingScrape, setLoadingScrape] = useState<boolean>(false);
-  const [loadingData, setLoadingData] = useState<boolean>(false);
-  const [messaggio, setMessaggio] = useState<string>('');
+interface Partita {
+  id: string;
+  squadraCasa: string;
+  squadraOspite: string;
+  giocatoriCasa: GiocatoreProbabile[];
+  giocatoriOspite: GiocatoreProbabile[];
+}
 
-  // 1. Funzione per leggere i giocatori salvati su Supabase
-  const caricaFormazioni = async (silent = false) => {
-    if (!silent) {
-      setLoadingData(true);
-      setMessaggio('📥 Caricamento dati da Supabase in corso...');
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('probabili_formazioni')
-        .select(`
-          id,
-          percentuale_titolarita,
-          stato,
-          giocatori (
-            nome_completo,
-            ruolo,
-            squadre ( nome )
-          )
-        `);
-
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      if (data) {
-        setFormazioni(data as unknown as FormazioneGiocatore[]);
-        if (!silent) {
-          setMessaggio(`✅ Caricati ${data.length} giocatori con successo!`);
-        }
-      }
-    } catch (err: any) {
-      if (!silent) {
-        setMessaggio(`❌ Errore caricamento: ${err.message}`);
-      }
-    } finally {
-      if (!silent) {
-        setLoadingData(false);
-        setTimeout(() => setMessaggio(''), 5000);
-      }
-    }
-  };
+export default function ProbabiliFormazioniPage() {
+  const [partite, setPartite] = useState<Partita[]>([]);
+  const [miaFormazione, setMiaFormazione] = useState<{
+    titolari: GiocatoreProbabile[];
+    panchina: GiocatoreProbabile[];
+  }>({ titolari: [], panchina: [] });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    caricaFormazioni();
+    caricaDati();
   }, []);
 
-  // 2. Funzione per lanciare lo scraper con Polling attivo su Supabase
-  const avviaScraping = async () => {
-    setLoadingScrape(true);
-    setMessaggio('🚀 Avvio di GitHub Actions in corso...');
+  async function caricaDati() {
+    setLoading(true);
 
-    try {
-      // Conta i record attuali prima di lanciare lo scraper
-      const { count: initialCount } = await supabase
-        .from('probabili_formazioni')
-        .select('*', { count: 'exact', head: true });
+    // 1. Recupera probabili formazioni da Supabase
+    const { data: pfData, error } = await supabase
+      .from("probabili_formazioni")
+      .select(`
+        percentuale_titolarita,
+        stato,
+        giocatori (
+          id,
+          nome_completo,
+          squadre ( nome )
+        )
+      `);
 
-      const res = await fetch('/api/scrape', { method: 'POST' });
-      const contentType = res.headers.get('content-type');
-
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Ambiente non compatibile. Esegui lo scraper da ambiente locale.');
-      }
-
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Errore durante l\'avvio dello scraping.');
-      }
-
-      setMessaggio('⏳ Scraper avviato su GitHub Actions. Attendi l\'elaborazione dei dati...');
-
-      // Pausa iniziale di 15 secondi per dare tempo a GitHub di preparare il runner
-      await new Promise((resolve) => setTimeout(resolve, 15000));
-
-      // Inizio del polling: controlla ogni 4 secondi se il database si è aggiornato
-      let tentativi = 0;
-      const maxTentativi = 12; // Limite massimo: circa 48 secondi di polling dopo la pausa
-      let completato = false;
-
-      while (tentativi < maxTentativi && !completato) {
-        tentativi++;
-        setMessaggio(`⏳ Verifica aggiornamento dati su Supabase (tentativo ${tentativi}/${maxTentativi})...`);
-
-        const { count: currentCount } = await supabase
-          .from('probabili_formazioni')
-          .select('*', { count: 'exact', head: true });
-
-        // Se i record sono variati oppure se si tratta di un aggiornamento di dati esistenti
-        if (currentCount !== null && currentCount !== initialCount) {
-          completato = true;
-          break;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 4000));
-      }
-
-      // Ricarica automaticamente la lista a schermo
-      await caricaFormazioni(true);
-      setMessaggio('✅ Scraping e aggiornamento completati con successo!');
-
-    } catch (err: any) {
-      setMessaggio(`❌ ${err.message}`);
-    } finally {
-      setLoadingScrape(false);
-      setTimeout(() => setMessaggio(''), 7000);
+    if (error) {
+      console.error("Errore caricamento probabili formazioni:", error);
+      setLoading(false);
+      return;
     }
-  };
 
-  // Raggruppamento giocatori per squadra
-  const squadreRaggruppate = formazioni.reduce((acc, f) => {
-    const nomeSquadra = f.giocatori?.squadre?.nome || 'Altre';
-    if (!acc[nomeSquadra]) acc[nomeSquadra] = [];
-    acc[nomeSquadra].push(f);
-    return acc;
-  }, {} as Record<string, FormazioneGiocatore[]>);
+    // Mappatura dati giocatori
+    const tuttiGiocatori: (GiocatoreProbabile & { squadra_id?: string })[] = [];
+    
+    pfData?.forEach((item: any) => {
+      if (item.giocatori) {
+        tuttiGiocatori.push({
+          id: item.giocatori.id,
+          nome_completo: item.giocatori.nome_completo,
+          squadra: item.giocatori.squadre?.nome || "SCONOSCIUTA",
+          percentuale: item.percentuale_titolarita,
+          stato: item.stato,
+        });
+      }
+    });
+
+    // Raggruppa i giocatori per partite (a coppie di squadre)
+    const partiteRaggruppate = creaStrutturaPartite(tuttiGiocatori);
+    setPartite(partiteRaggruppate);
+
+    // 2. Recupera "La Mia Formazione" dal database
+    const { data: miaFormData } = await supabase
+      .from("mia_formazione")
+      .select(`
+        posizione,
+        ordine,
+        giocatori (
+          id,
+          nome_completo,
+          squadre ( nome )
+        )
+      `)
+      .order("ordine", { ascending: true });
+
+    if (miaFormData) {
+      const titolari: GiocatoreProbabile[] = [];
+      const panchina: GiocatoreProbabile[] = [];
+
+      miaFormData.forEach((row: any) => {
+        const infoScraper = tuttiGiocatori.find(
+          (g) => g.id === row.giocatori?.id
+        );
+
+        const gObj: GiocatoreProbabile = {
+          id: row.giocatori?.id,
+          nome_completo: row.giocatori?.nome_completo || "Sconosciuto",
+          squadra: row.giocatori?.squadre?.nome || "",
+          percentuale: infoScraper ? infoScraper.percentuale : 0,
+          stato: infoScraper ? infoScraper.stato : "panchina",
+        };
+
+        if (row.posizione === "TITOLARE") {
+          titolari.push(gObj);
+        } else {
+          panchina.push(gObj);
+        }
+      });
+
+      setMiaFormazione({ titolari, panchina });
+    }
+
+    setLoading(false);
+  }
+
+  // Funzione di supporto per raggruppare i giocatori nelle partite
+  function creaStrutturaPartite(giocatori: GiocatoreProbabile[]): Partita[] {
+    const squadrePresenti = Array.from(new Set(giocatori.map((g) => g.squadra)));
+    const listaPartite: Partita[] = [];
+
+    for (let i = 0; i < squadrePresenti.length; i += 2) {
+      const sqCasa = squadrePresenti[i];
+      const sqOspite = squadrePresenti[i + 1] || "RIPOSO";
+
+      listaPartite.push({
+        id: `${sqCasa}-${sqOspite}`,
+        squadraCasa: sqCasa,
+        squadraOspite: sqOspite,
+        giocatoriCasa: giocatori.filter((g) => g.squadra === sqCasa),
+        giocatoriOspite: giocatori.filter((g) => g.squadra === sqOspite),
+      });
+    }
+
+    return listaPartite;
+  }
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center min-h-screen bg-slate-900 text-white">
+        <p className="text-xl animate-pulse">Caricamento probabili formazioni in corso...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
-      {/* Intestazione e Pulsanti */}
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-extrabold text-amber-400">Probabili Formazioni Serie A</h1>
-          <p className="text-slate-400 text-sm">Pannello di controllo e visualizzazione percentuali</p>
+    <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
+      {/* HEADER STILE FANTACALCIO */}
+      <header className="max-w-6xl mx-auto mb-8 text-center border-b border-slate-800 pb-4">
+        <h1 className="text-3xl md:text-5xl font-extrabold text-blue-500 uppercase tracking-wide">
+          Probabili Formazioni Serie A
+        </h1>
+        <p className="text-slate-400 mt-2 text-sm md:text-base">
+          Percentuali e ultime notizie dai campi aggiornate in tempo reale.
+        </p>
+      </header>
+
+      <div className="max-w-6xl mx-auto space-y-10">
+        
+        {/* ================= SEZIONE LA MIA FORMAZIONE ================= */}
+        <section className="bg-slate-900 border-2 border-amber-500/50 rounded-2xl p-5 shadow-xl">
+          <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
+            <h2 className="text-2xl font-bold text-amber-400 flex items-center gap-2">
+              ⭐ La Mia Formazione
+            </h2>
+            <span className="text-xs bg-amber-500/20 text-amber-300 px-3 py-1 rounded-full border border-amber-500/30">
+              Personalizzata
+            </span>
+          </div>
+
+          {miaFormazione.titolari.length === 0 && miaFormazione.panchina.length === 0 ? (
+            <p className="text-slate-500 text-sm italic text-center py-4">
+              Nessun giocatore inserito in "mia_formazione" nel database.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* TITOLARI MII */}
+              <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                <h3 className="text-emerald-400 font-bold uppercase text-sm mb-3 border-b border-slate-800 pb-1">
+                  Titolari ({miaFormazione.titolari.length})
+                </h3>
+                <ul className="space-y-2">
+                  {miaFormazione.titolari.map((g) => (
+                    <li
+                      key={g.id}
+                      className="flex justify-between items-center text-sm p-2 rounded bg-slate-900/80 border border-slate-800"
+                    >
+                      <div>
+                        <span className="font-semibold text-white">{g.nome_completo}</span>
+                        <span className="text-xs text-slate-500 ml-2">({g.squadra})</span>
+                      </div>
+                      <BadgePercentuale perc={g.percentuale} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* PANCHINA MIA */}
+              <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                <h3 className="text-amber-400 font-bold uppercase text-sm mb-3 border-b border-slate-800 pb-1">
+                  Panchina ({miaFormazione.panchina.length})
+                </h3>
+                <ul className="space-y-2">
+                  {miaFormazione.panchina.map((g, idx) => (
+                    <li
+                      key={g.id}
+                      className="flex justify-between items-center text-sm p-2 rounded bg-slate-900/80 border border-slate-800"
+                    >
+                      <div>
+                        <span className="text-xs text-slate-500 mr-2">{idx + 1}.</span>
+                        <span className="font-semibold text-slate-200">{g.nome_completo}</span>
+                        <span className="text-xs text-slate-500 ml-2">({g.squadra})</span>
+                      </div>
+                      <BadgePercentuale perc={g.percentuale} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* ================= SCHEDE PARTITE (CLONE FANTACALCIO) ================= */}
+        <div className="grid grid-cols-1 gap-8">
+          {partite.map((partita) => (
+            <div
+              key={partita.id}
+              className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg"
+            >
+              {/* INTESTAZIONE PARTITA */}
+              <div className="bg-slate-800/80 px-6 py-3 border-b border-slate-700 flex justify-between items-center">
+                <span className="font-black text-lg md:text-xl text-white tracking-wider">
+                  {partita.squadraCasa}
+                </span>
+                <span className="text-xs text-slate-400 font-semibold px-3 py-1 bg-slate-900 rounded-full border border-slate-700">
+                  VS
+                </span>
+                <span className="font-black text-lg md:text-xl text-white tracking-wider">
+                  {partita.squadraOspite}
+                </span>
+              </div>
+
+              {/* CONTENUTO SCHEDA - DUE COLONNE */}
+              <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
+                
+                {/* SQUADRA CASA */}
+                <ColonnaSquadra
+                  squadraNome={partita.squadraCasa}
+                  giocatori={partita.giocatoriCasa}
+                />
+
+                {/* SQUADRA OSPITE */}
+                <ColonnaSquadra
+                  squadraNome={partita.squadraOspite}
+                  giocatori={partita.giocatoriOspite}
+                />
+
+              </div>
+            </div>
+          ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Pulsante 1: Lancia Scraper */}
-          <button
-            onClick={avviaScraping}
-            disabled={loadingScrape}
-            className={`px-5 py-2.5 rounded-lg font-bold text-sm text-slate-950 transition-all shadow-md flex items-center gap-2 ${
-              loadingScrape ? 'bg-slate-600 cursor-not-allowed' : 'bg-amber-400 hover:bg-amber-300 active:scale-95'
-            }`}
-          >
-            {loadingScrape ? '⏳ Elaborazione in corso...' : '🐍 Lancia scraper.py'}
-          </button>
+      </div>
+    </main>
+  );
+}
 
-          {/* Pulsante 2: Mostra / Ricarica Giocatori */}
-          <button
-            onClick={() => caricaFormazioni()}
-            disabled={loadingData}
-            className={`px-5 py-2.5 rounded-lg font-bold text-sm text-white transition-all shadow-md border border-slate-700 flex items-center gap-2 ${
-              loadingData ? 'bg-slate-800 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-700 active:scale-95'
-            }`}
-          >
-            {loadingData ? '⏳ Caricamento...' : '📋 Mostra Giocatori'}
-          </button>
+{/* COMPONENTE COLONNA SQUADRA */}
+function ColonnaSquadra({
+  squadraNome,
+  giocatori,
+}: {
+  squadraNome: string;
+  giocatori: GiocatoreProbabile[];
+}) {
+  const titolari = giocatori.filter((g) => g.stato === "titolare");
+  const panchina = giocatori.filter((g) => g.stato === "panchina");
+  const indisponibili = giocatori.filter((g) => g.stato === "indisponibile");
+
+  return (
+    <div className="p-4 md:p-5 space-y-4">
+      {/* TITOLARI */}
+      <div>
+        <h4 className="text-xs font-bold uppercase tracking-wider text-blue-400 mb-2 border-b border-slate-800 pb-1">
+          TITOLARI ({titolari.length})
+        </h4>
+        <div className="space-y-1.5">
+          {titolari.map((g) => (
+            <div
+              key={g.id}
+              className="flex justify-between items-center text-sm py-1 border-b border-slate-800/50"
+            >
+              <span className="font-medium text-slate-200">{g.nome_completo}</span>
+              <BadgePercentuale perc={g.percentuale} />
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Messaggio di stato */}
-      {messaggio && (
-        <div className="max-w-7xl mx-auto mb-6 p-4 rounded-lg bg-slate-900 border border-slate-800 text-center font-medium text-amber-300 transition-all">
-          {messaggio}
+      {/* PANCHINA */}
+      {panchina.length > 0 && (
+        <div>
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 border-b border-slate-800 pb-1">
+            PANCHINA
+          </h4>
+          <div className="space-y-1.5">
+            {panchina.map((g) => (
+              <div
+                key={g.id}
+                className="flex justify-between items-center text-xs py-1 border-b border-slate-800/30 text-slate-400"
+              >
+                <span>{g.nome_completo}</span>
+                <BadgePercentuale perc={g.percentuale} />
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Griglia Squadre e Giocatori */}
-      <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {Object.keys(squadreRaggruppate).length === 0 ? (
-          <div className="col-span-full text-center text-slate-500 py-12">
-            Nessun giocatore da mostrare. Clicca su &quot;Mostra Giocatori&quot; per caricare i dati.
+      {/* INDISPONIBILI */}
+      {indisponibili.length > 0 && (
+        <div>
+          <h4 className="text-xs font-bold uppercase tracking-wider text-rose-500 mb-2 border-b border-slate-800 pb-1">
+            INDISPONIBILI / SQUALIFICATI
+          </h4>
+          <div className="space-y-1 text-xs text-rose-400/80">
+            {indisponibili.map((g) => (
+              <div key={g.id}>{g.nome_completo}</div>
+            ))}
           </div>
-        ) : (
-          Object.entries(squadreRaggruppate).map(([squadra, giocatori]) => (
-            <div key={squadra} className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-md">
-              <h2 className="text-xl font-bold text-amber-400 border-b border-slate-800 pb-2 mb-4 uppercase tracking-wider">
-                {squadra}
-              </h2>
-              <ul className="space-y-2">
-                {giocatori.map((item) => (
-                  <li
-                    key={item.id}
-                    className="flex items-center justify-between p-2 rounded bg-slate-800/60 hover:bg-slate-800 transition-colors"
-                  >
-                    <div>
-                      <span className="font-semibold text-slate-200">{item.giocatori?.nome_completo}</span>
-                      {item.giocatori?.ruolo && (
-                        <span className="ml-2 text-xs text-slate-400 uppercase">({item.giocatori.ruolo})</span>
-                      )}
-                    </div>
-                    <span
-                      className={`text-xs px-2 py-1 rounded font-bold ${
-                        item.percentuale_titolarita >= 70
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                          : item.percentuale_titolarita >= 50
-                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                          : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                      }`}
-                    >
-                      {item.percentuale_titolarita}%
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))
-        )}
-      </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+{/* BADGE PERCENTUALE COLORTATO */}
+function BadgePercentuale({ perc }: { perc: number }) {
+  let colore = "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+  if (perc < 40) {
+    colore = "bg-rose-500/20 text-rose-400 border-rose-500/30";
+  } else if (perc < 70) {
+    colore = "bg-amber-500/20 text-amber-400 border-amber-500/30";
+  }
+
+  return (
+    <span
+      className={`text-xs font-bold px-2 py-0.5 rounded border ${colore}`}
+    >
+      {perc}%
+    </span>
   );
 }
