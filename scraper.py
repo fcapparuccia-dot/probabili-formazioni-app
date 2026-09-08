@@ -47,7 +47,6 @@ def estrai_giocatori_da_contenitore(container, nome_squadra):
     dati = []
     stato_attivo = "titolare"
     
-    # Cerca tutti gli elementi figli del blocco squadra
     elementi = container.find_all(['div', 'li', 'tr', 'p', 'span'])
     for elem in elementi:
         txt = elem.get_text(" ", strip=True)
@@ -91,13 +90,13 @@ def scarica_probabili_formazioni():
     soup = BeautifulSoup(res.text, "html.parser")
     dati_estratti = []
 
-    # Cerchiamo le schede delle singole partite
+    # Isolamento dei blocchi partita
     card_partite = soup.find_all('div', class_=re.compile(r'card|match|match-card|match-box', re.I))
     if not card_partite:
         card_partite = soup.find_all('article') or soup.find_all('section')
 
     for card in card_partite:
-        # Cerchiamo i sotto-blocchi dedicati alla singola squadra all'interno del match
+        # Estrazione per sotto-contenitori (Squadra Casa vs Trasferta)
         blocchi_squadre = card.find_all('div', class_=re.compile(r'team|squadra|club|team-box', re.I))
         
         if len(blocchi_squadre) >= 2:
@@ -112,13 +111,12 @@ def scarica_probabili_formazioni():
                 if squadra_identificata:
                     dati_estratti.extend(estrai_giocatori_da_contenitore(blocco, squadra_identificata))
         else:
-            # Fallback se non ci sono blocchi HTML separati per squadra
             testo_card = card.get_text(" ", strip=True)
             squadre_nel_blocco = [sq for sq in SQUADRE_SERIE_A if sq in testo_card.upper()]
             if len(squadre_nel_blocco) == 1:
                 dati_estratti.extend(estrai_giocatori_da_contenitore(card, squadre_nel_blocco[0]))
 
-    # Fallback globale se l'HTML della pagina cambia completamente
+    # Backup Parser Globale (line-by-line fallback)
     if len(set(g['squadra'] for g in dati_estratti)) < 10:
         squadra_attiva = None
         stato_attivo = "titolare"
@@ -158,7 +156,7 @@ def scarica_probabili_formazioni():
                         "percentuale": perc
                     })
 
-    # Deduplicazione
+    # Deduplicazione dati
     visti = set()
     giocatori_filtrati = []
     for d in dati_estratti:
@@ -188,9 +186,8 @@ def salva_su_supabase(giocatori_data):
     squadre_db = supabase.table("squadre").select("id, nome").execute().data
     squadra_map = {s["nome"]: s["id"] for s in squadre_db}
 
-    # 2. Upsert Giocatori (aggiorna la squadra corretta per ciascun giocatore)
+    # 2. Upsert Giocatori (aggiorna la squadra corretta per ogni giocatore)
     giocatori_payload = []
-    
     for g in giocatori_data:
         nome_comp = g["nome"][:100]
         squadra_id = squadra_map.get(g["squadra"])
