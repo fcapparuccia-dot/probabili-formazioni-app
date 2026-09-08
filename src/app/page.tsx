@@ -289,7 +289,7 @@ export default function HomePage() {
       )}
 
       {/* SCHERMATA CAMPO E FORMAZIONE */}
-      <PitchBuilder rosa={miaRosa} />
+      <PitchBuilder rosa={miaRosa} squadreMappa={squadreMappa} />
 
       {/* SEZIONE GESTIONE ROSA CON SALVATAGGIO PERMANENTE */}
       <section className="max-w-6xl mx-auto mb-10 bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl">
