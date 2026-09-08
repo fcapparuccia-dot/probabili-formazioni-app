@@ -1,37 +1,41 @@
 import { NextResponse } from 'next/server';
-import { exec } from 'child_process';
-import util from 'util';
-import path from 'path';
-
-const execPromise = util.promisify(exec);
 
 export async function POST() {
+  const token = process.env.GITHUB_TOKEN;
+  const repo = process.env.GITHUB_REPO;
+
+  if (!token || !repo) {
+    return NextResponse.json(
+      { success: false, error: 'Variabili GITHUB_TOKEN o GITHUB_REPO non configurate su Vercel.' },
+      { status: 500 }
+    );
+  }
+
   try {
-    const scriptPath = path.join(process.cwd(), 'scraper.py');
-    const command = process.platform === 'win32' ? `python "${scriptPath}"` : `python3 "${scriptPath}"`;
+    const response = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        event_type: 'run-scraper',
+      }),
+    });
 
-    const { stdout, stderr } = await execPromise(command);
-
-    if (stderr && !stdout) {
-      console.error('Errore durante lo scraping:', stderr);
-      return NextResponse.json(
-        { success: false, error: stderr },
-        { status: 500 }
-      );
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Errore GitHub API (${response.status}): ${errorText}`);
     }
 
     return NextResponse.json({
       success: true,
-      message: 'Scraping ed aggiornamento completati con successo!',
-      output: stdout,
+      message: '🚀 Avvio dello scraper inviato con successo a GitHub Actions! Attendi qualche secondo e clicca su "Mostra Giocatori".',
     });
   } catch (error: any) {
-    console.error('Errore esecuzione scraper.py:', error);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error.message || 'Errore durante l\'esecuzione dello script.' 
-      },
+      { success: false, error: error.message },
       { status: 500 }
     );
   }
