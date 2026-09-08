@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 
 export async function POST() {
   try {
-    // Sostituisci questo URL con quello esatto generato da Render
     const RENDER_SCRAPER_URL = 'https://fantacalcio-scraper.onrender.com/run-scraper';
 
     console.log('📡 Invio richiesta di scraping al server Python su Render...');
@@ -12,7 +11,6 @@ export async function POST() {
       headers: {
         'Content-Type': 'application/json',
       },
-      // Impostiamo il revalidate a 0 per evitare cache
       cache: 'no-store',
     });
 
@@ -30,7 +28,7 @@ export async function POST() {
   } catch (error: any) {
     console.error('❌ Errore API Scrape:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: error.message || 'Errore di connessione al server.' },
       { status: 500 }
     );
   }
