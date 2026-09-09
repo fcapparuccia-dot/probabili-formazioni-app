@@ -3,8 +3,8 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 
 interface GiocatoreProbabile {
-  id: string;
-  id_giocatore?: string; // Supporto per il campo UUID di Supabase
+  id?: string;
+  id_giocatore?: string;
   nome_completo: string;
   squadra: string;
   percentuale: number;
@@ -19,7 +19,7 @@ type SlotCampo = GiocatoreProbabile | null;
 
 export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
   const [schema, setSchema] = useState<string>("4-4-2");
-  const [titolari, setTitolari] = useState<SlotCampo[]>([]);
+  const [titolari, setTitolari] = useState<SlotCampo[]>(Array(11).fill(null));
   const [panchina, setPanchina] = useState<GiocatoreProbabile[]>([]);
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -27,21 +27,16 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
 
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
-
-  // Stato per la conferma di eliminazione
   const [giocatoreDaEliminare, setGiocatoreDaEliminare] = useState<GiocatoreProbabile | null>(null);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Normalizziamo la rosa garantendo che l'ID primario sia l'UUID di Supabase
+  // Normalizziamo la rosa associando univocamente l'UUID
   const rosaNormalizzata = useMemo(() => {
-    return (rosaIniziale || []).map((g) => {
-      const realId = g.id || g.id_giocatore || `${g.nome_completo.toLowerCase().replace(/\s+/g, "_")}-${g.squadra.toLowerCase()}`;
-      return {
-        ...g,
-        id: realId,
-      };
-    });
+    return (rosaIniziale || []).map((g) => ({
+      ...g,
+      id: g.id || g.id_giocatore || "",
+    })).filter((g) => g.id !== "");
   }, [rosaIniziale]);
 
   // 1. CARICAMENTO ALL'AVVIO DA API (SUPABASE)
@@ -50,7 +45,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
 
     const mappaRosa = new Map<string, GiocatoreProbabile>();
     rosaNormalizzata.forEach((g) => {
-      mappaRosa.set(g.id, g);
+      if (g.id) mappaRosa.set(g.id, g);
       if (g.id_giocatore) mappaRosa.set(g.id_giocatore, g);
     });
 
@@ -61,21 +56,22 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
         if (res.ok) {
           const saved = await res.json();
 
-          if (saved && saved.titolari && Array.isArray(saved.titolari)) {
-            const titolariRic: SlotCampo[] = saved.titolari.map((id: string | null) =>
+          if (saved && (saved.titolari?.length > 0 || saved.panchina?.length > 0)) {
+            // Mappa i titolari salvati
+            const titolariRic: SlotCampo[] = (saved.titolari || []).map((id: string | null) =>
               id ? mappaRosa.get(id) || null : null
             );
 
-            // Garantisce che l'array titolari abbia esattamente 11 slot
             while (titolariRic.length < 11) {
               titolariRic.push(null);
             }
 
+            // Mappa la panchina salvata
             const panchinaRic: GiocatoreProbabile[] = (saved.panchina || [])
               .map((id: string) => mappaRosa.get(id))
               .filter((g: any): g is GiocatoreProbabile => g !== undefined);
 
-            // Se la panchina salvata è vuota o incompleta, aggiungiamo i rimanenti della rosa
+            // Aggiunge in coda alla panchina i giocatori non ancora posizionati
             const inseritiIds = new Set([
               ...titolariRic.filter(Boolean).map((g) => g!.id),
               ...panchinaRic.map((g) => g.id),
@@ -95,7 +91,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
         console.error("Errore recupero formazione dal server:", e);
       }
 
-      // Fallback in caso di prima esecuzione o tabella vuota
+      // Fallback in caso di primo avvio in assoluto
       const primi11: SlotCampo[] = rosaNormalizzata.slice(0, 11);
       while (primi11.length < 11) primi11.push(null);
       setTitolari(primi11);
@@ -106,28 +102,26 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
     caricaFormazioneDaServer();
   }, [rosaNormalizzata]);
 
-  // 2. SALVATAGGIO SUL SERVER (POST VERSO API)
+  // 2. SALVATAGGIO SUL SERVER
   const salvaFormazione = (nuovoSchema: string, nuoviTitolari: SlotCampo[], nuovaPanchina: GiocatoreProbabile[]) => {
     setSchema(nuovoSchema);
     setTitolari(nuoviTitolari);
     setPanchina(nuovaPanchina);
 
-    if (!isLoaded) return; // Impedisce di sovrascrivere durante il caricamento iniziale
+    if (!isLoaded) return; // Non sovrascrive se non ha completato il primo load
 
     setIsSaving(true);
     const titolariIds = nuoviTitolari.map((g) => (g ? g.id : null));
     const panchinaIds = nuovaPanchina.map((g) => g.id);
 
-    const dataToSave = {
-      schema: nuovoSchema,
-      titolari: titolariIds,
-      panchina: panchinaIds,
-    };
-
     fetch("/api/formazione", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(dataToSave),
+      body: JSON.stringify({
+        schema: nuovoSchema,
+        titolari: titolariIds,
+        panchina: panchinaIds,
+      }),
     })
       .catch((err) => console.error("Errore salvataggio server:", err))
       .finally(() => {
@@ -141,7 +135,6 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
     return "bg-rose-500/30 text-rose-300 border-rose-500/50";
   };
 
-  // DRAG & DROP
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggedId(id);
     e.dataTransfer.setData("text/plain", id);
@@ -190,7 +183,6 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
     setSelectedSlotIndex(null);
   };
 
-  // Conferma ed elimina definitivamente il giocatore selezionato
   const confermaEliminazione = () => {
     if (!giocatoreDaEliminare) return;
     const nuovaPanchina = panchina.filter((g) => g.id !== giocatoreDaEliminare.id);
@@ -198,7 +190,6 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
     setGiocatoreDaEliminare(null);
   };
 
-  // Ripristina tutti i giocatori rimossi
   const ripristinaRosaCompleta = () => {
     const salvatiIds = new Set(titolari.filter(Boolean).map((g) => g!.id));
     const nuovaPanchina = rosaNormalizzata.filter((g) => !salvatiIds.has(g.id));
@@ -252,37 +243,34 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
 
   return (
     <div className="space-y-4 relative" onClick={() => setSelectedSlotIndex(null)}>
-      {/* MODALE DI CONFERMA ELIMINAZIONE */}
       {giocatoreDaEliminare && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
           onClick={() => setGiocatoreDaEliminare(null)}
         >
           <div
-            className="bg-slate-900 border border-slate-700 rounded-xl p-5 max-w-sm w-full shadow-2xl space-y-4 text-center animate-in fade-in zoom-in-95 duration-150"
+            className="bg-slate-900 border border-slate-700 rounded-xl p-5 max-w-sm w-full shadow-2xl space-y-4 text-center"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-12 h-12 bg-rose-500/20 border border-rose-500/40 text-rose-400 rounded-full flex items-center justify-center mx-auto text-xl">
               🗑️
             </div>
-
             <div>
               <h4 className="text-lg font-bold text-white">Rimuovere il giocatore?</h4>
               <p className="text-sm text-slate-300 mt-1">
                 Sei sicuro di voler rimuovere <strong className="text-amber-400">{giocatoreDaEliminare.nome_completo}</strong> dalla rosa?
               </p>
             </div>
-
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setGiocatoreDaEliminare(null)}
-                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm py-2 px-3 rounded-lg border border-slate-700 transition-colors"
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm py-2 px-3 rounded-lg border border-slate-700"
               >
                 Annulla
               </button>
               <button
                 onClick={confermaEliminazione}
-                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm py-2 px-3 rounded-lg shadow transition-colors"
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm py-2 px-3 rounded-lg shadow"
               >
                 Rimuovi
               </button>
@@ -314,27 +302,19 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
           </select>
         </div>
 
-        {/* Indicatore Stato Salvataggio */}
         <div className="flex items-center gap-2 text-xs font-semibold">
           {!isLoaded ? (
-            <span className="text-slate-400 flex items-center gap-1">
-              🔄 Caricamento...
-            </span>
+            <span className="text-slate-400">🔄 Caricamento...</span>
           ) : isSaving ? (
-            <span className="text-amber-400 flex items-center gap-1 animate-pulse">
-              ⏳ Salvataggio in corso...
-            </span>
+            <span className="text-amber-400 animate-pulse">⏳ Salvataggio in corso...</span>
           ) : (
-            <span className="text-emerald-400 flex items-center gap-1">
-              ✓ Formazione Salvata
-            </span>
+            <span className="text-emerald-400">✓ Formazione Salvata</span>
           )}
         </div>
       </div>
 
       {/* GRIGLIA CAMPO + PANCHINA */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* CAMPO DI GIOCO */}
         <div
           className="lg:col-span-8 bg-emerald-800 rounded-2xl p-4 border-2 border-emerald-600 shadow-2xl relative lg:sticky lg:top-4 z-20"
           onClick={(e) => e.stopPropagation()}
@@ -402,8 +382,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
             {haGiocatoriEliminati && (
               <button
                 onClick={ripristinaRosaCompleta}
-                className="text-[11px] bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-2 py-1 rounded transition-colors"
-                title="Ripristina tutti i giocatori eliminati"
+                className="text-[11px] bg-slate-800 text-amber-400 border border-amber-500/30 px-2 py-1 rounded"
               >
                 🔄 Ripristina
               </button>
@@ -415,15 +394,14 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
               <div
                 key={giocatore.id}
                 draggable
-                onDragStart={(e) => handleDragStart(e, giocatore.id)}
+                onDragStart={(e) => handleDragStart(e, giocatore.id!)}
                 onDragOver={handleDragOver}
-                className="flex items-center justify-between p-2.5 bg-slate-800/80 border border-slate-700/60 rounded-lg hover:border-amber-500 cursor-grab active:cursor-grabbing transition-all select-none group"
+                className="flex items-center justify-between p-2.5 bg-slate-800/80 border border-slate-700/60 rounded-lg hover:border-amber-500 cursor-grab active:cursor-grabbing select-none"
               >
                 <div className="flex items-center gap-2.5">
                   <span className={`text-xs font-bold px-2 py-0.5 rounded border ${getBadgeColor(giocatore.percentuale)}`}>
                     {giocatore.percentuale}%
                   </span>
-
                   <div>
                     <p className="font-bold text-sm text-white">{giocatore.nome_completo}</p>
                     <p className="text-[11px] text-slate-400 uppercase tracking-wider">{giocatore.squadra}</p>
@@ -431,17 +409,13 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs bg-slate-700/60 text-slate-400 font-semibold px-2 py-1 rounded">
-                    ☰
-                  </span>
-
+                  <span className="text-xs bg-slate-700/60 text-slate-400 font-semibold px-2 py-1 rounded">☰</span>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setGiocatoreDaEliminare(giocatore);
                     }}
-                    title="Rimuovi dalla rosa"
-                    className="p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
+                    className="p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded"
                   >
                     🗑️
                   </button>
@@ -483,14 +457,10 @@ function SlotCampoGiocatore({
   const isPortiere = index === 0;
 
   return (
-    <div
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      className="relative flex flex-col items-center group select-none"
-    >
+    <div onDragOver={onDragOver} onDrop={onDrop} className="relative flex flex-col items-center select-none">
       {isSelected && giocatore && (
         <div
-          className={`absolute z-50 bg-slate-900 border border-rose-500/80 rounded-lg shadow-2xl p-1 animate-in fade-in zoom-in-95 duration-150 ${
+          className={`absolute z-50 bg-slate-900 border border-rose-500/80 rounded-lg p-1 ${
             isPortiere ? "-top-12" : "top-full mt-1"
           }`}
         >
@@ -499,7 +469,7 @@ function SlotCampoGiocatore({
               e.stopPropagation();
               onRimuovi();
             }}
-            className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-2.5 py-1.5 rounded flex items-center gap-1 whitespace-nowrap shadow"
+            className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-2.5 py-1.5 rounded flex items-center gap-1 whitespace-nowrap"
           >
             ❌ Rimuovi titolare
           </button>
@@ -509,20 +479,18 @@ function SlotCampoGiocatore({
       {giocatore ? (
         <div
           draggable
-          onDragStart={(e) => onDragStart(e, giocatore.id)}
+          onDragStart={(e) => onDragStart(e, giocatore.id!)}
           onMouseDown={onMouseDown}
           onMouseUp={onMouseUp}
           onClick={onClick}
-          className="flex flex-col items-center cursor-grab active:cursor-grabbing transition-transform hover:scale-105"
+          className="flex flex-col items-center cursor-grab active:cursor-grabbing hover:scale-105"
         >
           <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border mb-1 ${getBadgeColor(giocatore.percentuale)}`}>
             {giocatore.percentuale}%
           </span>
-
           <div className="w-11 h-11 bg-amber-400 text-slate-950 font-black rounded-full flex items-center justify-center border-2 border-white shadow-lg text-xs">
             {giocatore.nome_completo.substring(0, 3).toUpperCase()}
           </div>
-
           <span className="bg-slate-950/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded mt-1 border border-slate-700 max-w-[85px] truncate text-center">
             {giocatore.nome_completo}
           </span>
@@ -530,7 +498,7 @@ function SlotCampoGiocatore({
       ) : (
         <div className="flex flex-col items-center">
           <span className="text-[10px] font-bold text-slate-400 mb-1 opacity-0">00%</span>
-          <div className="w-11 h-11 bg-emerald-950/60 border-2 border-dashed border-emerald-400/60 rounded-full flex items-center justify-center text-emerald-300 font-extrabold text-lg shadow-inner">
+          <div className="w-11 h-11 bg-emerald-950/60 border-2 border-dashed border-emerald-400/60 rounded-full flex items-center justify-center text-emerald-300 font-extrabold text-lg">
             +
           </div>
           <span className="bg-slate-950/60 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded mt-1 border border-emerald-500/30">
