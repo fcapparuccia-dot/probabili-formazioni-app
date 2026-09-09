@@ -1,45 +1,35 @@
 import { NextResponse } from "next/server";
-import { createClient } from "redis";
+import { Redis } from "@upstash/redis";
 
-async function getRedisClient() {
-  const client = createClient({
-    url: process.env.REDIS_URL,
-  });
-  client.on("error", (err) => console.error("Redis Client Error", err));
-  await client.connect();
-  return client;
-}
+// Inizializza il client Redis sfruttando le variabili automatiche di Vercel
+const redis = Redis.fromEnv();
 
 export async function GET() {
-  let client;
   try {
-    client = await getRedisClient();
-    const data = await client.get("formazione_utente");
-    await client.disconnect();
+    const data = await redis.get("formazione_utente");
 
     if (!data) {
       return NextResponse.json(null);
     }
 
-    return NextResponse.json(JSON.parse(data));
+    // Se i dati sono già un oggetto non occorre fare JSON.parse
+    const formazione = typeof data === "string" ? JSON.parse(data) : data;
+    return NextResponse.json(formazione);
   } catch (error) {
-    if (client) await client.disconnect();
     console.error("Errore lettura Redis:", error);
     return NextResponse.json({ error: "Errore lettura dati" }, { status: 500 });
   }
 }
 
 export async function POST(req: Request) {
-  let client;
   try {
     const body = await req.json();
-    client = await getRedisClient();
-    await client.set("formazione_utente", JSON.stringify(body));
-    await client.disconnect();
+    
+    // Salva i dati direttamente su Redis
+    await redis.set("formazione_utente", body);
 
     return NextResponse.json({ success: true, ...body });
   } catch (error) {
-    if (client) await client.disconnect();
     console.error("Errore salvataggio Redis:", error);
     return NextResponse.json({ error: "Errore salvataggio dati" }, { status: 500 });
   }
