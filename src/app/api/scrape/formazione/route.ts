@@ -6,7 +6,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// LEGGERE LA FORMAZIONE DA SUPABASE
 export async function GET() {
   try {
     const { data: righeFormazione, error } = await supabase
@@ -14,12 +13,15 @@ export async function GET() {
       .select("giocatore_id, posizione, ordine")
       .order("ordine", { ascending: true });
 
-    if (error || !righeFormazione || righeFormazione.length === 0) {
-      console.error("Errore o formazione vuota su Supabase:", error);
+    if (error) {
+      console.error("Errore lettura Supabase:", error);
       return NextResponse.json(null);
     }
 
-    // Separiamo i titolari (ordinati per slot) e la panchina
+    if (!righeFormazione || righeFormazione.length === 0) {
+      return NextResponse.json(null);
+    }
+
     const titolari: (string | null)[] = [];
     const panchina: string[] = [];
 
@@ -32,28 +34,35 @@ export async function GET() {
     });
 
     return NextResponse.json({
-      schema: "4-4-2", // o lo schema salvato
+      schema: "4-4-2",
       titolari,
       panchina,
     });
   } catch (error) {
-    console.error("Errore lettura Supabase:", error);
-    return NextResponse.json({ error: "Errore lettura dati" }, { status: 500 });
+    console.error("Errore GET API:", error);
+    return NextResponse.json({ error: "Errore lettura" }, { status: 500 });
   }
 }
 
-// SALVARE LA FORMAZIONE SU SUPABASE
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { titolari, panchina } = body;
 
-    // 1. Svuota la formazione precedente
-    await supabase.from("mia_formazione").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    // 1. Svuota la formazione esistente
+    const { error: deleteError } = await supabase
+      .from("mia_formazione")
+      .delete()
+      .gte("ordine", 0); // Cancella tutte le righe esistenti
 
+    if (deleteError) {
+      console.error("Errore DELETE Supabase:", deleteError);
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    }
+
+    // 2. Prepara le righe da inserire
     const nuoveRighe: any[] = [];
 
-    // 2. Prepara i titolari
     titolari.forEach((id: string | null, idx: number) => {
       if (id) {
         nuoveRighe.push({
@@ -64,27 +73,31 @@ export async function POST(req: Request) {
       }
     });
 
-    // 3. Prepara la panchina
     panchina.forEach((id: string, idx: number) => {
-      nuoveRighe.push({
-        giocatore_id: id,
-        posizione: "PANCHINA",
-        ordine: idx,
-      });
+      if (id) {
+        nuoveRighe.push({
+          giocatore_id: id,
+          posizione: "PANCHINA",
+          ordine: idx,
+        });
+      }
     });
 
-    // 4. Inserisce i nuovi dati
+    // 3. Inserimento
     if (nuoveRighe.length > 0) {
       const { error: insertError } = await supabase
         .from("mia_formazione")
         .insert(nuoveRighe);
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error("Errore INSERT Supabase:", insertError);
+        return NextResponse.json({ error: insertError.message }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Errore salvataggio Supabase:", error);
-    return NextResponse.json({ error: "Errore salvataggio dati" }, { status: 500 });
+  } catch (error: any) {
+    console.error("Errore server POST:", error);
+    return NextResponse.json({ error: error?.message || "Errore generico" }, { status: 500 });
   }
 }
