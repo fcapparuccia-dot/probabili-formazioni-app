@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+// DISABILITA LA CACHE NEXT.JS SUL BACKEND
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -25,13 +29,27 @@ export async function GET() {
     }
 
     if (!data || data.length === 0) {
-      return NextResponse.json({ titolari: [], panchina: [], schema: '4-4-2' });
+      return NextResponse.json(
+        { titolari: [], panchina: [], schema: '4-4-2' },
+        {
+          headers: {
+            'Cache-Control': 'no-store, max-age=0, must-revalidate',
+          },
+        }
+      );
     }
 
     const titolari = data.filter((row: any) => row.posizione === 'TITOLARE').map((row: any) => row.giocatore_id);
     const panchina = data.filter((row: any) => row.posizione === 'PANCHINA').map((row: any) => row.giocatore_id);
 
-    return NextResponse.json({ schema: '4-4-2', titolari, panchina });
+    return NextResponse.json(
+      { schema: '4-4-2', titolari, panchina },
+      {
+        headers: {
+          'Cache-Control': 'no-store, max-age=0, must-revalidate',
+        },
+      }
+    );
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -54,7 +72,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: deleteError.message }, { status: 500 });
     }
 
-    // 2. Mappa i titolari validi (soltanto con UUID validi)
+    // 2. Mappa i titolari validi
     const titolariRows = (titolari || [])
       .filter((id: any): id is string => typeof id === 'string' && isUUID(id))
       .map((id: string, idx: number) => ({
@@ -63,7 +81,7 @@ export async function POST(request: Request) {
         ordine: idx,
       }));
 
-    // 3. Mappa la panchina valida (soltanto con UUID validi)
+    // 3. Mappa la panchina valida
     const panchinaRows = (panchina || [])
       .filter((id: any): id is string => typeof id === 'string' && isUUID(id))
       .map((id: string, idx: number) => ({

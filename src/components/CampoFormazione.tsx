@@ -39,7 +39,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
     })).filter((g) => g.id !== "");
   }, [rosaIniziale]);
 
-  // 1. CARICAMENTO ALL'AVVIO DA API (SUPABASE)
+  // 1. CARICAMENTO ALL'AVVIO DA API (SUPABASE) WITH ANTI-CACHE
   useEffect(() => {
     if (!rosaNormalizzata || rosaNormalizzata.length === 0) return;
 
@@ -51,7 +51,13 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
 
     async function caricaFormazioneDaServer() {
       try {
-        const res = await fetch("/api/formazione", { cache: "no-store" });
+        const res = await fetch(`/api/formazione?t=${Date.now()}`, {
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+          },
+        });
 
         if (res.ok) {
           const saved = await res.json();
