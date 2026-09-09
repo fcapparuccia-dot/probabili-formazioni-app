@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Inizializzazione Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -38,24 +37,25 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { schema, titolari, panchina } = body;
 
-    // Cancella la vecchia formazione salvata
+    // Cancella tutte le righe esistenti usando la colonna ruolo (garantita presente)
     const { error: deleteError } = await supabase
       .from('mia_formazione')
       .delete()
-      .neq('id', 0); // Cancella tutte le righe
+      .in('ruolo', ['titolare', 'panchina']);
 
     if (deleteError) {
       console.error('Errore pulizia vecchia formazione:', deleteError);
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
     }
 
-    // Prepara i nuovi record
+    // Prepara i nuovi dati
     const rowsToInsert = [
-      ...titolari.filter(Boolean).map((id: string) => ({
+      ...(titolari || []).filter(Boolean).map((id: string) => ({
         giocatore_id: id,
         ruolo: 'titolare',
         schema: schema,
       })),
-      ...panchina.filter(Boolean).map((id: string) => ({
+      ...(panchina || []).filter(Boolean).map((id: string) => ({
         giocatore_id: id,
         ruolo: 'panchina',
         schema: schema,
