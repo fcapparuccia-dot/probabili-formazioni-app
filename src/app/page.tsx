@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import CampoFormazione from "@/components/CampoFormazione";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -51,7 +52,6 @@ export default function ProbabiliFormazioniPage() {
   async function caricaDati() {
     setLoading(true);
 
-    // 1. Recupera probabili formazioni da Supabase
     const { data: pfData, error } = await supabase
       .from("probabili_formazioni")
       .select(`
@@ -89,7 +89,6 @@ export default function ProbabiliFormazioniPage() {
 
     setTuttiGiocatoriMap(map);
 
-    // Raggruppa i giocatori per partite
     const partiteRaggruppate = creaStrutturaPartite(tuttiGiocatori);
     setPartite(partiteRaggruppate);
 
@@ -159,7 +158,6 @@ export default function ProbabiliFormazioniPage() {
     return listaPartite;
   }
 
-  // Cerca calciatori nel database
   async function cercaGiocatori(query: string) {
     setSearchQuery(query);
     if (query.length < 2) {
@@ -190,7 +188,6 @@ export default function ProbabiliFormazioniPage() {
     setIsSearching(false);
   }
 
-  // Aggiungi un giocatore a mia_formazione
   async function aggiungiGiocatore(giocatoreId: string, posizione: "TITOLARE" | "PANCHINA") {
     const ordine = posizione === "PANCHINA" ? miaFormazione.panchina.length + 1 : 0;
 
@@ -208,7 +205,6 @@ export default function ProbabiliFormazioniPage() {
     await ricaricaMiaFormazione();
   }
 
-  // Rimuovi un giocatore da mia_formazione
   async function rimuoviGiocatore(giocatoreId: string) {
     await supabase.from("mia_formazione").delete().eq("giocatore_id", giocatoreId);
     await ricaricaMiaFormazione();
@@ -222,9 +218,11 @@ export default function ProbabiliFormazioniPage() {
     );
   }
 
+  // Prepariamo la rosa totale per il Drag & Drop sul Campo
+  const rosaCompleta = [...miaFormazione.titolari, ...miaFormazione.panchina];
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
-      {/* HEADER STILE FANTACALCIO */}
       <header className="max-w-6xl mx-auto mb-8 text-center border-b border-slate-800 pb-4">
         <h1 className="text-3xl md:text-5xl font-extrabold text-blue-500 uppercase tracking-wide">
           Probabili Formazioni Serie A
@@ -246,13 +244,13 @@ export default function ProbabiliFormazioniPage() {
               onClick={() => setIsGestioneOpen(!isGestioneOpen)}
               className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-sm px-4 py-2 rounded-lg transition-all shadow-md"
             >
-              {isGestioneOpen ? "✖ Chiudi Gestione" : "✏️ Gestisci Formazione"}
+              {isGestioneOpen ? "✖ Chiudi Gestione" : "✏️ Gestisci Rosa"}
             </button>
           </div>
 
           {/* PANNELLO DI INSERIMENTO / RICERCA */}
           {isGestioneOpen && (
-            <div className="mb-6 p-4 bg-slate-950 rounded-xl border border-amber-500/30 space-y-4 animate-fadeIn">
+            <div className="mb-6 p-4 bg-slate-950 rounded-xl border border-amber-500/30 space-y-4">
               <h3 className="text-sm font-semibold text-amber-300 uppercase tracking-wider">
                 Aggiungi Giocatore alla tua Rosa
               </h3>
@@ -266,7 +264,6 @@ export default function ProbabiliFormazioniPage() {
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                 />
 
-                {/* RISULTATI DELLA RICERCA */}
                 {searchResults.length > 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-h-60 overflow-y-auto">
                     {searchResults.map((g) => (
@@ -280,16 +277,10 @@ export default function ProbabiliFormazioniPage() {
                         </div>
                         <div className="flex gap-2">
                           <button
-                            onClick={() => aggiungiGiocatore(g.id, "TITOLARE")}
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-2.5 py-1 rounded font-bold"
-                          >
-                            + Titolare
-                          </button>
-                          <button
                             onClick={() => aggiungiGiocatore(g.id, "PANCHINA")}
                             className="bg-amber-600 hover:bg-amber-500 text-white text-xs px-2.5 py-1 rounded font-bold"
                           >
-                            + Panchina
+                            + Aggiungi alla Rosa
                           </button>
                         </div>
                       </div>
@@ -303,89 +294,23 @@ export default function ProbabiliFormazioniPage() {
             </div>
           )}
 
-          {/* VISUALIZZAZIONE TITOLARI / PANCHINA */}
-          {miaFormazione.titolari.length === 0 && miaFormazione.panchina.length === 0 ? (
+          {/* VISTA CAMPO DI CALCIO CON DRAG & DROP */}
+          {rosaCompleta.length === 0 ? (
             <p className="text-slate-500 text-sm italic text-center py-6">
-              Nessun giocatore in formazione. Clicca su <strong>"Gestisci Formazione"</strong> in alto per aggiungere i tuoi calciatori!
+              Nessun giocatore in rosa. Clicca su <strong>"Gestisci Rosa"</strong> in alto per inserire i tuoi calciatori!
             </p>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* TITOLARI MII */}
-              <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800">
-                <h3 className="text-emerald-400 font-bold uppercase text-sm mb-3 border-b border-slate-800 pb-1">
-                  Titolari ({miaFormazione.titolari.length})
-                </h3>
-                <ul className="space-y-2">
-                  {miaFormazione.titolari.map((g) => (
-                    <li
-                      key={g.id}
-                      className="flex justify-between items-center text-sm p-2 rounded bg-slate-900/80 border border-slate-800"
-                    >
-                      <div>
-                        <span className="font-semibold text-white">{g.nome_completo}</span>
-                        <span className="text-xs text-slate-500 ml-2">({g.squadra})</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <BadgePercentuale perc={g.percentuale} />
-                        {isGestioneOpen && (
-                          <button
-                            onClick={() => rimuoviGiocatore(g.id)}
-                            className="text-rose-500 hover:text-rose-400 font-bold text-xs"
-                            title="Rimuovi"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* PANCHINA MIA */}
-              <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800">
-                <h3 className="text-amber-400 font-bold uppercase text-sm mb-3 border-b border-slate-800 pb-1">
-                  Panchina ({miaFormazione.panchina.length})
-                </h3>
-                <ul className="space-y-2">
-                  {miaFormazione.panchina.map((g, idx) => (
-                    <li
-                      key={g.id}
-                      className="flex justify-between items-center text-sm p-2 rounded bg-slate-900/80 border border-slate-800"
-                    >
-                      <div>
-                        <span className="text-xs text-slate-500 mr-2">{idx + 1}.</span>
-                        <span className="font-semibold text-slate-200">{g.nome_completo}</span>
-                        <span className="text-xs text-slate-500 ml-2">({g.squadra})</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <BadgePercentuale perc={g.percentuale} />
-                        {isGestioneOpen && (
-                          <button
-                            onClick={() => rimuoviGiocatore(g.id)}
-                            className="text-rose-500 hover:text-rose-400 font-bold text-xs"
-                            title="Rimuovi"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
+            <CampoFormazione rosa={rosaCompleta} />
           )}
         </section>
 
-        {/* ================= SCHEDE PARTITE (CLONE FANTACALCIO) ================= */}
+        {/* ================= SCHEDE PARTITE ================= */}
         <div className="grid grid-cols-1 gap-8">
           {partite.map((partita) => (
             <div
               key={partita.id}
               className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg"
             >
-              {/* INTESTAZIONE PARTITA */}
               <div className="bg-slate-800/80 px-6 py-3 border-b border-slate-700 flex justify-between items-center">
                 <span className="font-black text-lg md:text-xl text-white tracking-wider">
                   {partita.squadraCasa}
@@ -398,7 +323,6 @@ export default function ProbabiliFormazioniPage() {
                 </span>
               </div>
 
-              {/* CONTENUTO SCHEDA - DUE COLONNE */}
               <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
                 <ColonnaSquadra
                   squadraNome={partita.squadraCasa}
@@ -418,7 +342,6 @@ export default function ProbabiliFormazioniPage() {
   );
 }
 
-{/* COMPONENTE COLONNA SQUADRA */}
 function ColonnaSquadra({
   squadraNome,
   giocatori,
@@ -432,7 +355,6 @@ function ColonnaSquadra({
 
   return (
     <div className="p-4 md:p-5 space-y-4">
-      {/* TITOLARI */}
       <div>
         <h4 className="text-xs font-bold uppercase tracking-wider text-blue-400 mb-2 border-b border-slate-800 pb-1">
           TITOLARI ({titolari.length})
@@ -450,7 +372,6 @@ function ColonnaSquadra({
         </div>
       </div>
 
-      {/* PANCHINA */}
       {panchina.length > 0 && (
         <div>
           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 border-b border-slate-800 pb-1">
@@ -470,7 +391,6 @@ function ColonnaSquadra({
         </div>
       )}
 
-      {/* INDISPONIBILI */}
       {indisponibili.length > 0 && (
         <div>
           <h4 className="text-xs font-bold uppercase tracking-wider text-rose-500 mb-2 border-b border-slate-800 pb-1">
@@ -487,7 +407,6 @@ function ColonnaSquadra({
   );
 }
 
-{/* BADGE PERCENTUALE COLORTATO */}
 function BadgePercentuale({ perc }: { perc: number }) {
   let colore = "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
   if (perc < 40) {
@@ -497,9 +416,7 @@ function BadgePercentuale({ perc }: { perc: number }) {
   }
 
   return (
-    <span
-      className={`text-xs font-bold px-2 py-0.5 rounded border ${colore}`}
-    >
+    <span className={`text-xs font-bold px-2 py-0.5 rounded border ${colore}`}>
       {perc}%
     </span>
   );
