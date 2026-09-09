@@ -16,8 +16,6 @@ interface Props {
 
 type SlotCampo = GiocatoreProbabile | null;
 
-const STORAGE_KEY = "fanta_formazione_salvata_v1";
-
 export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
   const [schema, setSchema] = useState<string>("4-4-2");
   const [titolari, setTitolari] = useState<SlotCampo[]>([]);
@@ -42,55 +40,56 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
     }));
   }, [rosaIniziale]);
 
-  // 1. CARICAMENTO ALL'AVVIO (Prima prova da localStorage, poi da Server)
+  // 1. CARICAMENTO ALL'AVVIO DA SERVER / API
   useEffect(() => {
     if (!rosaNormalizzata || rosaNormalizzata.length === 0) return;
 
-    let caricato = false;
     const mappaRosa = new Map(rosaNormalizzata.map((g) => [g.id, g]));
 
-    // Tentativo A: Caricamento immediato da LocalStorage
-    try {
-      const savedRaw = localStorage.getItem(STORAGE_KEY);
-      if (savedRaw) {
-        const saved = JSON.parse(savedRaw);
-        if (saved && saved.titolari) {
-          const titolariRic: SlotCampo[] = saved.titolari.map((id: string | null) =>
-            id ? mappaRosa.get(id) || null : null
-          );
-          const panchinaRic: GiocatoreProbabile[] = saved.panchina
-            .map((id: string) => mappaRosa.get(id))
-            .filter((g: any): g is GiocatoreProbabile => g !== undefined);
+    async function caricaFormazioneDaServer() {
+      try {
+        const res = await fetch("/api/formazione", { cache: "no-store" });
+        
+        if (res.ok) {
+          const saved = await res.json();
+          
+          if (saved && saved.titolari) {
+            const titolariRic: SlotCampo[] = saved.titolari.map((id: string | null) =>
+              id ? mappaRosa.get(id) || null : null
+            );
+            const panchinaRic: GiocatoreProbabile[] = (saved.panchina || [])
+              .map((id: string) => mappaRosa.get(id))
+              .filter((g: any): g is GiocatoreProbabile => g !== undefined);
 
-          setSchema(saved.schema || "4-4-2");
-          setTitolari(titolariRic);
-          setPanchina(panchinaRic);
-          caricato = true;
+            setSchema(saved.schema || "4-4-2");
+            setTitolari(titolariRic);
+            setPanchina(panchinaRic);
+            setIsLoaded(true);
+            return;
+          }
         }
+      } catch (e) {
+        console.error("Errore recupero formazione dal server:", e);
       }
-    } catch (e) {
-      console.error("Errore lettura LocalStorage:", e);
-    }
 
-    // Fallback se LocalStorage è vuoto: usa la formazione iniziale
-    if (!caricato) {
+      // Fallback: se il server è vuoto o fallisce, usa i primi 11
       const primi11: SlotCampo[] = rosaNormalizzata.slice(0, 11);
       while (primi11.length < 11) primi11.push(null);
       setTitolari(primi11);
       setPanchina(rosaNormalizzata.slice(11));
+      setIsLoaded(true);
     }
 
-    // Segnala che il caricamento iniziale è finito
-    setIsLoaded(true);
+    caricaFormazioneDaServer();
   }, [rosaNormalizzata]);
 
-  // 2. SALVATAGGIO (Eseguito SOLO se isLoaded === true)
+  // 2. SALVATAGGIO SUL SERVER
   const salvaFormazione = (nuovoSchema: string, nuoviTitolari: SlotCampo[], nuovaPanchina: GiocatoreProbabile[]) => {
     setSchema(nuovoSchema);
     setTitolari(nuoviTitolari);
     setPanchina(nuovaPanchina);
 
-    if (!isLoaded) return; // Impedisce sovrascritture durante il boot
+    if (!isLoaded) return; // Impedisce sovrascritture durante il caricamento iniziale
 
     setIsSaving(true);
     const titolariIds = nuoviTitolari.map((g) => (g ? g.id : null));
@@ -102,14 +101,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
       panchina: panchinaIds,
     };
 
-    // Salvataggio 1: Browser LocalStorage (Istantaneo)
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-    } catch (e) {
-      console.error("Errore salvataggio LocalStorage:", e);
-    }
-
-    // Salvataggio 2: Invia al Server / API
+    // Invio al Server / API
     fetch("/api/formazione", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

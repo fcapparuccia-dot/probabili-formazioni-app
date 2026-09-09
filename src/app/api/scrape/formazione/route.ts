@@ -1,42 +1,46 @@
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
+import { createClient } from "redis";
 
-// File locale dove verrà salvata la formazione sul server
-const filePath = path.join(process.cwd(), "formazione.json");
+async function getRedisClient() {
+  const client = createClient({
+    url: process.env.REDIS_URL,
+  });
+  client.on("error", (err) => console.error("Redis Client Error", err));
+  await client.connect();
+  return client;
+}
 
-// Legge la formazione salvata
 export async function GET() {
+  let client;
   try {
-    if (!fs.existsSync(filePath)) {
-      return NextResponse.json({ formazione: null });
+    client = await getRedisClient();
+    const data = await client.get("formazione_utente");
+    await client.disconnect();
+
+    if (!data) {
+      return NextResponse.json(null);
     }
-    const data = fs.readFileSync(filePath, "utf-8");
-    return NextResponse.json({ formazione: JSON.parse(data) });
+
+    return NextResponse.json(JSON.parse(data));
   } catch (error) {
-    console.error("Errore lettura formazione:", error);
-    return NextResponse.json({ error: "Errore lettura file" }, { status: 500 });
+    if (client) await client.disconnect();
+    console.error("Errore lettura Redis:", error);
+    return NextResponse.json({ error: "Errore lettura dati" }, { status: 500 });
   }
 }
 
-// Salva la formazione
 export async function POST(req: Request) {
+  let client;
   try {
     const body = await req.json();
-    const { schema, titolari, panchina } = body;
+    client = await getRedisClient();
+    await client.set("formazione_utente", JSON.stringify(body));
+    await client.disconnect();
 
-    const nuovaFormazione = {
-      schema,
-      titolari,
-      panchina,
-      updatedAt: new Date().toISOString(),
-    };
-
-    fs.writeFileSync(filePath, JSON.stringify(nuovaFormazione, null, 2), "utf-8");
-
-    return NextResponse.json({ success: true, formazione: nuovaFormazione });
+    return NextResponse.json({ success: true, ...body });
   } catch (error) {
-    console.error("Errore salvataggio formazione:", error);
-    return NextResponse.json({ error: "Errore salvataggio file" }, { status: 500 });
+    if (client) await client.disconnect();
+    console.error("Errore salvataggio Redis:", error);
+    return NextResponse.json({ error: "Errore salvataggio dati" }, { status: 500 });
   }
 }
