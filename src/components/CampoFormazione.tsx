@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 
 interface GiocatoreProbabile {
   id: string;
+  id_giocatore?: string; // Supporto per il campo UUID di Supabase
   nome_completo: string;
   squadra: string;
   percentuale: number;
@@ -20,7 +21,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
   const [schema, setSchema] = useState<string>("4-4-2");
   const [titolari, setTitolari] = useState<SlotCampo[]>([]);
   const [panchina, setPanchina] = useState<GiocatoreProbabile[]>([]);
-  
+
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -32,38 +33,60 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Normalizziamo la rosa per avere ID univoci e stabili
-  const rosaNormalizzata = React.useMemo(() => {
-    return (rosaIniziale || []).map((g) => ({
-      ...g,
-      id: g.id || `${g.nome_completo.toLowerCase().replace(/\s+/g, "_")}-${g.squadra.toLowerCase()}`,
-    }));
+  // Normalizziamo la rosa garantendo che l'ID primario sia l'UUID di Supabase
+  const rosaNormalizzata = useMemo(() => {
+    return (rosaIniziale || []).map((g) => {
+      const realId = g.id || g.id_giocatore || `${g.nome_completo.toLowerCase().replace(/\s+/g, "_")}-${g.squadra.toLowerCase()}`;
+      return {
+        ...g,
+        id: realId,
+      };
+    });
   }, [rosaIniziale]);
 
-  // 1. CARICAMENTO ALL'AVVIO DA SERVER / API
+  // 1. CARICAMENTO ALL'AVVIO DA API (SUPABASE)
   useEffect(() => {
     if (!rosaNormalizzata || rosaNormalizzata.length === 0) return;
 
-    const mappaRosa = new Map(rosaNormalizzata.map((g) => [g.id, g]));
+    const mappaRosa = new Map<string, GiocatoreProbabile>();
+    rosaNormalizzata.forEach((g) => {
+      mappaRosa.set(g.id, g);
+      if (g.id_giocatore) mappaRosa.set(g.id_giocatore, g);
+    });
 
     async function caricaFormazioneDaServer() {
       try {
         const res = await fetch("/api/formazione", { cache: "no-store" });
-        
+
         if (res.ok) {
           const saved = await res.json();
-          
-          if (saved && saved.titolari) {
+
+          if (saved && saved.titolari && Array.isArray(saved.titolari)) {
             const titolariRic: SlotCampo[] = saved.titolari.map((id: string | null) =>
               id ? mappaRosa.get(id) || null : null
             );
+
+            // Garantisce che l'array titolari abbia esattamente 11 slot
+            while (titolariRic.length < 11) {
+              titolariRic.push(null);
+            }
+
             const panchinaRic: GiocatoreProbabile[] = (saved.panchina || [])
               .map((id: string) => mappaRosa.get(id))
               .filter((g: any): g is GiocatoreProbabile => g !== undefined);
 
+            // Se la panchina salvata è vuota o incompleta, aggiungiamo i rimanenti della rosa
+            const inseritiIds = new Set([
+              ...titolariRic.filter(Boolean).map((g) => g!.id),
+              ...panchinaRic.map((g) => g.id),
+            ]);
+
+            const rimanentiRosa = rosaNormalizzata.filter((g) => !inseritiIds.has(g.id));
+            const panchinaFinale = [...panchinaRic, ...rimanentiRosa];
+
             setSchema(saved.schema || "4-4-2");
-            setTitolari(titolariRic);
-            setPanchina(panchinaRic);
+            setTitolari(titolariRic.slice(0, 11));
+            setPanchina(panchinaFinale);
             setIsLoaded(true);
             return;
           }
@@ -72,7 +95,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
         console.error("Errore recupero formazione dal server:", e);
       }
 
-      // Fallback: se il server è vuoto o fallisce, usa i primi 11
+      // Fallback in caso di prima esecuzione o tabella vuota
       const primi11: SlotCampo[] = rosaNormalizzata.slice(0, 11);
       while (primi11.length < 11) primi11.push(null);
       setTitolari(primi11);
@@ -83,13 +106,13 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
     caricaFormazioneDaServer();
   }, [rosaNormalizzata]);
 
-  // 2. SALVATAGGIO SUL SERVER
+  // 2. SALVATAGGIO SUL SERVER (POST VERSO API)
   const salvaFormazione = (nuovoSchema: string, nuoviTitolari: SlotCampo[], nuovaPanchina: GiocatoreProbabile[]) => {
     setSchema(nuovoSchema);
     setTitolari(nuoviTitolari);
     setPanchina(nuovaPanchina);
 
-    if (!isLoaded) return; // Impedisce sovrascritture durante il caricamento iniziale
+    if (!isLoaded) return; // Impedisce di sovrascrivere durante il caricamento iniziale
 
     setIsSaving(true);
     const titolariIds = nuoviTitolari.map((g) => (g ? g.id : null));
@@ -101,7 +124,6 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
       panchina: panchinaIds,
     };
 
-    // Invio al Server / API
     fetch("/api/formazione", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -230,21 +252,20 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
 
   return (
     <div className="space-y-4 relative" onClick={() => setSelectedSlotIndex(null)}>
-      
       {/* MODALE DI CONFERMA ELIMINAZIONE */}
       {giocatoreDaEliminare && (
-        <div 
+        <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
           onClick={() => setGiocatoreDaEliminare(null)}
         >
-          <div 
+          <div
             className="bg-slate-900 border border-slate-700 rounded-xl p-5 max-w-sm w-full shadow-2xl space-y-4 text-center animate-in fade-in zoom-in-95 duration-150"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-12 h-12 bg-rose-500/20 border border-rose-500/40 text-rose-400 rounded-full flex items-center justify-center mx-auto text-xl">
               🗑️
             </div>
-            
+
             <div>
               <h4 className="text-lg font-bold text-white">Rimuovere il giocatore?</h4>
               <p className="text-sm text-slate-300 mt-1">
@@ -271,7 +292,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
       )}
 
       {/* HEADER CONTROLLI */}
-      <div 
+      <div
         className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex items-center justify-between gap-4"
         onClick={(e) => e.stopPropagation()}
       >
@@ -313,14 +334,12 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
 
       {/* GRIGLIA CAMPO + PANCHINA */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
         {/* CAMPO DI GIOCO */}
-        <div 
+        <div
           className="lg:col-span-8 bg-emerald-800 rounded-2xl p-4 border-2 border-emerald-600 shadow-2xl relative lg:sticky lg:top-4 z-20"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="relative w-full aspect-[4/3] bg-emerald-700/80 rounded-xl border-2 border-white/80 flex flex-col justify-between p-4 min-h-[480px]">
-            
             <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-30">
               <div className="w-full h-1/2 border-b-2 border-white"></div>
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-36 h-36 border-2 border-white rounded-full"></div>
@@ -370,7 +389,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
         </div>
 
         {/* ROSA / PANCHINA */}
-        <div 
+        <div
           className="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-xl p-4"
           onClick={(e) => e.stopPropagation()}
         >
@@ -431,7 +450,6 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
             ))}
           </div>
         </div>
-
       </div>
     </div>
   );

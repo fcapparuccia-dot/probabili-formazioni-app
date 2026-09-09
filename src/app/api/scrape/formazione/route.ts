@@ -1,31 +1,31 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+// Forza Vercel e Next.js a richiedere SEMPRE dati freschi a Supabase
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// GET: Legge la formazione da Supabase per qualsiasi dispositivo
 export async function GET() {
   try {
-    const { data: righeFormazione, error } = await supabase
+    const { data: righe, error } = await supabase
       .from("mia_formazione")
       .select("giocatore_id, posizione, ordine")
       .order("ordine", { ascending: true });
 
-    if (error) {
-      console.error("Errore lettura Supabase:", error);
-      return NextResponse.json(null);
-    }
-
-    if (!righeFormazione || righeFormazione.length === 0) {
+    if (error || !righe || righe.length === 0) {
       return NextResponse.json(null);
     }
 
     const titolari: (string | null)[] = [];
     const panchina: string[] = [];
 
-    righeFormazione.forEach((r) => {
+    righe.forEach((r) => {
       if (r.posizione === "TITOLARE") {
         titolari.push(r.giocatore_id);
       } else {
@@ -39,28 +39,19 @@ export async function GET() {
       panchina,
     });
   } catch (error) {
-    console.error("Errore GET API:", error);
     return NextResponse.json({ error: "Errore lettura" }, { status: 500 });
   }
 }
 
+// POST: Salva la formazione modificata su Supabase
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { titolari, panchina } = body;
 
-    // 1. Svuota la formazione esistente
-    const { error: deleteError } = await supabase
-      .from("mia_formazione")
-      .delete()
-      .gte("ordine", 0); // Cancella tutte le righe esistenti
+    // Svuota i vecchi record della formazione
+    await supabase.from("mia_formazione").delete().gte("ordine", 0);
 
-    if (deleteError) {
-      console.error("Errore DELETE Supabase:", deleteError);
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
-    }
-
-    // 2. Prepara le righe da inserire
     const nuoveRighe: any[] = [];
 
     titolari.forEach((id: string | null, idx: number) => {
@@ -83,21 +74,16 @@ export async function POST(req: Request) {
       }
     });
 
-    // 3. Inserimento
     if (nuoveRighe.length > 0) {
       const { error: insertError } = await supabase
         .from("mia_formazione")
         .insert(nuoveRighe);
 
-      if (insertError) {
-        console.error("Errore INSERT Supabase:", insertError);
-        return NextResponse.json({ error: insertError.message }, { status: 500 });
-      }
+      if (insertError) throw insertError;
     }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error("Errore server POST:", error);
-    return NextResponse.json({ error: error?.message || "Errore generico" }, { status: 500 });
+    return NextResponse.json({ error: error?.message || "Errore salvataggio" }, { status: 500 });
   }
 }
