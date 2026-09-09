@@ -1,39 +1,46 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "redis";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+async function getRedisClient() {
+  const client = createClient({
+    url: process.env.REDIS_URL,
+  });
+  client.on("error", (err) => console.error("Redis Client Error", err));
+  await client.connect();
+  return client;
+}
 
 export async function GET() {
+  let client;
   try {
-    const { data, error } = await supabase
-      .from("formazioni")
-      .select("dati")
-      .eq("id", "default")
-      .single();
+    client = await getRedisClient();
+    const data = await client.get("formazione_utente");
+    await client.disconnect();
 
-    if (error || !data) return NextResponse.json(null);
+    if (!data) {
+      return NextResponse.json(null);
+    }
 
-    return NextResponse.json(data.dati);
+    return NextResponse.json(JSON.parse(data));
   } catch (error) {
-    return NextResponse.json({ error: "Errore lettura Supabase" }, { status: 500 });
+    if (client) await client.disconnect();
+    console.error("Errore lettura Redis:", error);
+    return NextResponse.json({ error: "Errore lettura dati" }, { status: 500 });
   }
 }
 
 export async function POST(req: Request) {
+  let client;
   try {
     const body = await req.json();
-
-    const { error } = await supabase
-      .from("formazioni")
-      .upsert({ id: "default", dati: body, updated_at: new Date().toISOString() });
-
-    if (error) throw error;
+    client = await getRedisClient();
+    await client.set("formazione_utente", JSON.stringify(body));
+    await client.disconnect();
 
     return NextResponse.json({ success: true, ...body });
   } catch (error) {
-    return NextResponse.json({ error: "Errore salvataggio Supabase" }, { status: 500 });
+    if (client) await client.disconnect();
+    console.error("Errore salvataggio Redis:", error);
+    return NextResponse.json({ error: "Errore salvataggio dati" }, { status: 500 });
   }
 }
