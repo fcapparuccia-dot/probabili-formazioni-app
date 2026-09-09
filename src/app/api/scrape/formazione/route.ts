@@ -1,36 +1,39 @@
 import { NextResponse } from "next/server";
-import { Redis } from "@upstash/redis";
+import { createClient } from "@supabase/supabase-js";
 
-// Inizializza Redis usando REDIS_URL presente su Vercel
-const redis = Redis.fromEnv({
-  url: process.env.REDIS_URL || "",
-  token: "", // Non serve se la stringa REDIS_URL è completa o rediss://
-});
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function GET() {
   try {
-    const data = await redis.get("formazione_utente");
+    const { data, error } = await supabase
+      .from("formazioni")
+      .select("dati")
+      .eq("id", "default")
+      .single();
 
-    if (!data) {
-      return NextResponse.json(null);
-    }
+    if (error || !data) return NextResponse.json(null);
 
-    const formazione = typeof data === "string" ? JSON.parse(data) : data;
-    return NextResponse.json(formazione);
+    return NextResponse.json(data.dati);
   } catch (error) {
-    console.error("Errore lettura Redis:", error);
-    return NextResponse.json({ error: "Errore lettura dati" }, { status: 500 });
+    return NextResponse.json({ error: "Errore lettura Supabase" }, { status: 500 });
   }
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    await redis.set("formazione_utente", body);
+
+    const { error } = await supabase
+      .from("formazioni")
+      .upsert({ id: "default", dati: body, updated_at: new Date().toISOString() });
+
+    if (error) throw error;
 
     return NextResponse.json({ success: true, ...body });
   } catch (error) {
-    console.error("Errore salvataggio Redis:", error);
-    return NextResponse.json({ error: "Errore salvataggio dati" }, { status: 500 });
+    return NextResponse.json({ error: "Errore salvataggio Supabase" }, { status: 500 });
   }
 }
