@@ -9,7 +9,6 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// UUID neutro per la riga speciale dello SCHEMA
 const SCHEMA_UUID = "00000000-0000-0000-0000-000000000000";
 
 export async function GET() {
@@ -24,22 +23,20 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Cerchiamo la riga dello schema (dove posizione comincia con SCHEMA_)
-    const schemaRow = data.find((row: any) => row.posizione && row.posizione.startsWith("SCHEMA_"));
+    const schemaRow = data?.find((row: { posizione?: string }) => row.posizione && row.posizione.startsWith("SCHEMA_"));
     const schemaSalvato = schemaRow ? schemaRow.posizione.replace("SCHEMA_", "") : "4-4-2";
 
-    // Separiamo titolari e panchina
-    const titolariRighe = data.filter((row: any) => row.posizione === "TITOLARE");
-    const panchinaRighe = data.filter((row: any) => row.posizione === "PANCHINA");
+    const titolariRighe = data?.filter((row: { posizione?: string }) => row.posizione === "TITOLARE") || [];
+    const panchinaRighe = data?.filter((row: { posizione?: string }) => row.posizione === "PANCHINA") || [];
 
     const titolari = Array(11).fill(null);
-    titolariRighe.forEach((row: any) => {
+    titolariRighe.forEach((row: { ordine: number; giocatore_id: string }) => {
       if (row.ordine >= 0 && row.ordine < 11) {
         titolari[row.ordine] = row.giocatore_id;
       }
     });
 
-    const panchina = panchinaRighe.map((row: any) => row.giocatore_id);
+    const panchina = panchinaRighe.map((row: { giocatore_id: string }) => row.giocatore_id);
 
     return NextResponse.json(
       { schema: schemaSalvato, titolari, panchina },
@@ -50,19 +47,25 @@ export async function GET() {
         },
       }
     );
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Errore del server" }, { status: 500 });
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Errore del server";
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(req: Request) {
   try {
-    const body = await request.json();
+    const body = await req.json();
     const { schema, titolari, panchina } = body;
 
-    const righeDaInserire: any[] = [];
+    interface RigaInsert {
+      giocatore_id: string;
+      posizione: string;
+      ordine: number;
+    }
 
-    // Salva lo schema nel campo 'posizione' es: "SCHEMA_4-3-3"
+    const righeDaInserire: RigaInsert[] = [];
+
     if (schema) {
       righeDaInserire.push({
         giocatore_id: SCHEMA_UUID,
@@ -71,29 +74,30 @@ export async function POST(request: Request) {
       });
     }
 
-    // Titolari (0..10)
-    titolari.forEach((giocatoreId: string | null, index: number) => {
-      if (giocatoreId) {
-        righeDaInserire.push({
-          giocatore_id: giocatoreId,
-          posizione: "TITOLARE",
-          ordine: index,
-        });
-      }
-    });
+    if (Array.isArray(titolari)) {
+      titolari.forEach((giocatoreId: string | null, index: number) => {
+        if (giocatoreId) {
+          righeDaInserire.push({
+            giocatore_id: giocatoreId,
+            posizione: "TITOLARE",
+            ordine: index,
+          });
+        }
+      });
+    }
 
-    // Panchina
-    panchina.forEach((giocatoreId: string, index: number) => {
-      if (giocatoreId) {
-        righeDaInserire.push({
-          giocatore_id: giocatoreId,
-          posizione: "PANCHINA",
-          ordine: index,
-        });
-      }
-    });
+    if (Array.isArray(panchina)) {
+      panchina.forEach((giocatoreId: string | null, index: number) => {
+        if (giocatoreId) {
+          righeDaInserire.push({
+            giocatore_id: giocatoreId,
+            posizione: "PANCHINA",
+            ordine: index,
+          });
+        }
+      });
+    }
 
-    // Svuota e reinserisce
     await supabase.from("mia_formazione").delete().neq("ordine", -999);
 
     const { data, error: insertError } = await supabase
@@ -107,7 +111,8 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true, count: data?.length });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Errore server" }, { status: 500 });
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Errore server";
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
