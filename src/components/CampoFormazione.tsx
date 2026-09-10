@@ -209,7 +209,7 @@ export default function CampoFormazione({
   const att = posizioni.filter((p) => p.linea === "ATT");
 
   const renderLinea = (lineaPosizioni: typeof posizioni) => (
-    <div className="flex justify-around items-center w-full my-2">
+    <div className="flex justify-around items-center w-full my-1 sm:my-2 px-1">
       {lineaPosizioni.map((pos) => {
         const selezionatoId = titolari[pos.id];
         const gioc = selezionatoId ? getGiocatoreById(selezionatoId) : null;
@@ -219,17 +219,17 @@ export default function CampoFormazione({
             key={pos.id}
             onDragOver={handleDragOver}
             onDrop={(e) => handleDrop(e, pos.id)}
-            className="flex flex-col items-center group cursor-pointer"
+            className="flex flex-col items-center group cursor-pointer max-w-[22%] sm:max-w-none"
           >
-            <div className="w-16 h-16 md:w-20 md:h-20 bg-slate-900/90 border-2 border-emerald-400/80 rounded-full flex flex-col justify-center items-center p-1 text-center shadow-lg relative transition hover:scale-105 hover:border-emerald-300">
-              <span className="text-[10px] font-extrabold text-amber-400 uppercase tracking-tighter">
+            <div className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-slate-900/90 border-2 border-emerald-400/80 rounded-full flex flex-col justify-center items-center p-0.5 sm:p-1 text-center shadow-lg relative transition hover:scale-105 hover:border-emerald-300">
+              <span className="text-[8px] sm:text-[10px] font-extrabold text-amber-400 uppercase tracking-tighter">
                 {pos.etichetta}
               </span>
 
               <select
                 value={selezionatoId || ""}
                 onChange={(e) => assegnaGiocatoreAPosizione(pos.id, e.target.value)}
-                className="w-full bg-transparent text-[11px] font-bold text-white text-center focus:outline-none cursor-pointer truncate px-1"
+                className="w-full bg-transparent text-[9px] sm:text-[11px] font-bold text-white text-center focus:outline-none cursor-pointer truncate px-0.5"
               >
                 <option value="" className="bg-slate-900 text-slate-400">
                   + Scegli
@@ -243,12 +243,12 @@ export default function CampoFormazione({
             </div>
 
             {gioc && (
-              <div className="mt-1 flex flex-col items-center">
-                <span className="text-[10px] font-bold text-white bg-slate-950/90 px-2 py-0.5 rounded border border-emerald-500/40 shadow">
+              <div className="mt-1 flex flex-col items-center max-w-[75px] sm:max-w-[100px]">
+                <span className="text-[8px] sm:text-[10px] font-bold text-white bg-slate-950/90 px-1 sm:px-2 py-0.5 rounded border border-emerald-500/40 shadow truncate w-full text-center">
                   {gioc.nome}
                 </span>
-                <span className="text-[9px] font-bold text-amber-400 bg-slate-900/90 px-1.5 py-0.2 rounded mt-0.5">
-                  {gioc.percentuale}% titolare
+                <span className="text-[7px] sm:text-[9px] font-bold text-amber-400 bg-slate-900/90 px-1 py-0.2 rounded mt-0.5">
+                  {gioc.percentuale}%
                 </span>
               </div>
             )}
@@ -259,19 +259,19 @@ export default function CampoFormazione({
   );
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-6 shadow-xl">
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6 border-b border-slate-800 pb-4">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-2 sm:p-4 md:p-6 shadow-xl">
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-3 mb-4 sm:mb-6 border-b border-slate-800 pb-4">
         <div className="flex items-center gap-2">
           <span className="text-xl">⭐</span>
-          <h2 className="text-xl font-bold text-amber-400 tracking-wide">La Mia Formazione</h2>
+          <h2 className="text-lg sm:text-xl font-bold text-amber-400 tracking-wide">La Mia Formazione</h2>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <label className="text-xs text-slate-400 font-semibold uppercase">Modulo:</label>
           <select
             value={modulo}
             onChange={(e) => handleCambioModulo(e.target.value)}
-            className="bg-slate-950 border border-slate-700 text-white text-sm font-bold rounded-lg px-3 py-1.5 focus:outline-none focus:border-amber-500"
+            className="bg-slate-950 border border-slate-700 text-white text-xs sm:text-sm font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-amber-500"
           >
             <option value="4-3-3">4-3-3</option>
             <option value="4-4-2">4-4-2</option>
@@ -284,20 +284,20 @@ export default function CampoFormazione({
 
           <button
             onClick={onApriGestioneRosa}
-            className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-3.5 py-2 rounded-lg transition shadow-md"
+            className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg transition shadow-md"
           >
             ✏️ Gestisci Rosa
           </button>
         </div>
       </div>
 
-      <div className="relative w-full bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 border-4 border-slate-800 rounded-xl p-4 md:p-6 overflow-hidden shadow-2xl flex flex-col justify-between min-h-[440px]">
+      <div className="relative w-full bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 border-2 sm:border-4 border-slate-800 rounded-xl p-2 sm:p-4 md:p-6 overflow-hidden shadow-2xl flex flex-col justify-between min-h-[400px] sm:min-h-[440px]">
         <div className="absolute inset-x-0 top-1/2 h-0.5 bg-white/20 -translate-y-1/2 pointer-events-none" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border-2 border-white/20 rounded-full pointer-events-none" />
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-20 border-b-2 border-x-2 border-white/20 pointer-events-none" />
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-20 border-t-2 border-x-2 border-white/20 pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 sm:w-32 sm:h-32 border-2 border-white/20 rounded-full pointer-events-none" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-36 sm:w-48 h-16 sm:h-20 border-b-2 border-x-2 border-white/20 pointer-events-none" />
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-36 sm:w-48 h-16 sm:h-20 border-t-2 border-x-2 border-white/20 pointer-events-none" />
 
-        <div className="relative z-10 space-y-2">
+        <div className="relative z-10 space-y-1 sm:space-y-2">
           {renderLinea(att)}
           {renderLinea(cen)}
           {renderLinea(dif)}
@@ -317,7 +317,7 @@ export default function CampoFormazione({
                 key={g.id}
                 draggable={!inCampo}
                 onDragStart={(e) => handleDragStart(e, g.id)}
-                className={`text-xs px-3 py-1.5 rounded-lg font-bold border transition flex items-center gap-2 ${
+                className={`text-xs px-2.5 sm:px-3 py-1.5 rounded-lg font-bold border transition flex items-center gap-2 ${
                   inCampo
                     ? "bg-slate-950/40 text-slate-600 border-slate-800 line-through cursor-not-allowed"
                     : "bg-slate-800 text-white border-slate-700 shadow cursor-grab hover:border-amber-500"
