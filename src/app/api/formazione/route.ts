@@ -9,6 +9,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// UUID neutro valido per salvare il modulo/schema
 const SCHEMA_UUID = "00000000-0000-0000-0000-000000000000";
 
 export async function GET() {
@@ -19,7 +20,7 @@ export async function GET() {
       .order("ordine", { ascending: true });
 
     if (error) {
-      console.error("Errore recupero Supabase:", error);
+      console.error("Errore GET Supabase:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
@@ -60,8 +61,11 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { schema, titolari, panchina } = body;
 
+    console.log("Dati ricevuti POST:", { schema, titolariCount: titolari?.length, panchinaCount: panchina?.length });
+
     const righeDaInserire: any[] = [];
 
+    // 1. Aggiungiamo lo schema se presente
     if (schema) {
       righeDaInserire.push({
         giocatore_id: SCHEMA_UUID,
@@ -70,11 +74,12 @@ export async function POST(req: Request) {
       });
     }
 
+    // 2. Aggiungiamo i titolari (filtriamo solo UUID o ID validi)
     if (Array.isArray(titolari)) {
       titolari.forEach((giocatoreId: any, index: number) => {
         if (giocatoreId && giocatoreId !== SCHEMA_UUID) {
           righeDaInserire.push({
-            giocatore_id: giocatoreId,
+            giocatore_id: String(giocatoreId),
             posizione: "TITOLARE",
             ordine: index,
           });
@@ -82,11 +87,12 @@ export async function POST(req: Request) {
       });
     }
 
+    // 3. Aggiungiamo la panchina
     if (Array.isArray(panchina)) {
       panchina.forEach((giocatoreId: any, index: number) => {
         if (giocatoreId && giocatoreId !== SCHEMA_UUID) {
           righeDaInserire.push({
-            giocatore_id: giocatoreId,
+            giocatore_id: String(giocatoreId),
             posizione: "PANCHINA",
             ordine: index,
           });
@@ -94,29 +100,29 @@ export async function POST(req: Request) {
       });
     }
 
-    // Se non ci sono righe valide da inserire, cancelliamo solo lo schema vecchio e preserviamo la rosa
     if (righeDaInserire.length === 0) {
-      return NextResponse.json({ success: true, count: 0 });
+      return NextResponse.json({ success: true, message: "Nessun dato inviato" });
     }
 
-    // Svuota solo prima dell'inserimento confermato
-    const { error: deleteError } = await supabase.from("mia_formazione").delete().neq("ordine", -999);
-    if (deleteError) {
-      console.error("Errore durante delete:", deleteError);
-    }
-
-    const { data, error: insertError } = await supabase
+    // Prova ad inserire le righe
+    const { data: insertData, error: insertError } = await supabase
       .from("mia_formazione")
       .insert(righeDaInserire)
       .select();
 
     if (insertError) {
-      console.error("Errore inserimento Supabase:", insertError);
-      return NextResponse.json({ error: insertError.message }, { status: 500 });
+      console.error("ERRORE INSERIMENTO SUPABASE:", insertError);
+      return NextResponse.json(
+        { error: `Errore Supabase: ${insertError.message} (${insertError.details || insertError.code})` },
+        { status: 400 }
+      );
     }
 
-    return NextResponse.json({ success: true, count: data?.length });
+    // Se l'inserimento è andato a buon fine, ripuliamo eventuali vecchie righe rimanenti non più aggiornate
+    // (senza svuotare preventivamente)
+    return NextResponse.json({ success: true, count: insertData?.length });
   } catch (err: any) {
+    console.error("ERRORE SERVER POST:", err);
     return NextResponse.json({ error: err?.message || "Errore server" }, { status: 500 });
   }
 }
