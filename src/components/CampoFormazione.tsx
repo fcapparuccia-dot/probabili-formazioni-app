@@ -1,276 +1,198 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useState } from "react";
 
-export type Giocatore = {
+interface Giocatore {
   id: string;
-  nome?: string;
-  calciatore?: string;
-  ruolo?: string;
-  ruolo_breve?: string;
-  squadra?: string;
-  titolare?: boolean;
-  panchina?: boolean;
-  [key: string]: any;
-};
+  nome: string;
+  squadra: string;
+  percentuale?: number;
+  stato?: string;
+}
 
-type CampoFormazioneProps = {
+interface Props {
   rosa: Giocatore[];
   onApriGestioneRosa: () => void;
+}
+
+// Mappatura delle posizioni tattiche in base allo schema
+const SCHEMI: Record<string, { ruolo: string; etichetta: string }[]> = {
+  "4-3-3": [
+    { ruolo: "POR", etichetta: "POR" },
+    { ruolo: "DD", etichetta: "TD" },
+    { ruolo: "DC1", etichetta: "DC" },
+    { ruolo: "DC2", etichetta: "DC" },
+    { ruolo: "DS", etichetta: "TS" },
+    { ruolo: "CC1", etichetta: "MEZ" },
+    { ruolo: "MED", etichetta: "MED" },
+    { ruolo: "CC2", etichetta: "MEZ" },
+    { ruolo: "ED", etichetta: "AD" },
+    { ruolo: "PC", etichetta: "PC" },
+    { ruolo: "ES", etichetta: "AS" },
+  ],
+  "4-4-2": [
+    { ruolo: "POR", etichetta: "POR" },
+    { ruolo: "DD", etichetta: "TD" },
+    { ruolo: "DC1", etichetta: "DC" },
+    { ruolo: "DC2", etichetta: "DC" },
+    { ruolo: "DS", etichetta: "TS" },
+    { ruolo: "ED", etichetta: "CLD" },
+    { ruolo: "CC1", etichetta: "CC" },
+    { ruolo: "CC2", etichetta: "CC" },
+    { ruolo: "ES", etichetta: "CLS" },
+    { ruolo: "PC1", etichetta: "ATT" },
+    { ruolo: "PC2", etichetta: "ATT" },
+  ],
+  "3-5-2": [
+    { ruolo: "POR", etichetta: "POR" },
+    { ruolo: "DC1", etichetta: "DC" },
+    { ruolo: "DC2", etichetta: "DC" },
+    { ruolo: "DC3", etichetta: "DC" },
+    { ruolo: "ED", etichetta: "E" },
+    { ruolo: "CC1", etichetta: "CC" },
+    { ruolo: "MED", etichetta: "MED" },
+    { ruolo: "CC2", etichetta: "CC" },
+    { ruolo: "ES", etichetta: "E" },
+    { ruolo: "PC1", etichetta: "ATT" },
+    { ruolo: "PC2", etichetta: "ATT" },
+  ],
 };
 
-const SCHEMI_DISPONIBILI = ["4-4-2", "4-3-3", "3-5-2", "3-4-3", "4-2-3-1", "5-3-2"];
+export default function CampoFormazione({ rosa, onApriGestioneRosa }: Props) {
+  const [modulo, setModulo] = useState<string>("4-3-3");
+  const [titolari, setTitolari] = useState<Record<number, string>>({});
 
-export default function CampoFormazione({ rosa, onApriGestioneRosa }: CampoFormazioneProps) {
-  const [schema, setSchema] = useState<string>("4-4-2");
-  const [titolari, setTitolari] = useState<(string | null)[]>(Array(11).fill(null));
-  const [panchina, setPanchina] = useState<string[]>([]);
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
+  const posizioni = SCHEMI[modulo] || SCHEMI["4-3-3"];
 
-  useEffect(() => {
-    async function caricaFormazione() {
-      try {
-        const res = await fetch("/api/formazione");
-        if (res.ok) {
-          const data = await res.json();
-          if (data.schema) setSchema(data.schema);
-          if (Array.isArray(data.titolari)) setTitolari(data.titolari);
-          if (Array.isArray(data.panchina)) setPanchina(data.panchina);
-        }
-      } catch (err) {
-        console.error("Errore nel caricamento della formazione:", err);
-      } finally {
-        setIsInitialLoading(false);
+  const impostaTitolare = (index: number, giocatoreId: string) => {
+    setTitolari((prev) => {
+      const nuovo = { ...prev };
+      if (!giocatoreId) {
+        delete nuovo[index];
+      } else {
+        // Se il giocatore era già selezionato in un altro ruolo, lo rimuove da lì
+        Object.keys(nuovo).forEach((k) => {
+          if (nuovo[Number(k)] === giocatoreId) delete nuovo[Number(k)];
+        });
+        nuovo[index] = giocatoreId;
       }
-    }
-    caricaFormazione();
-  }, []);
-
-  const salvaSuServer = async (
-    nuovoSchema: string,
-    nuoviTitolari: (string | null)[],
-    nuovaPanchina: string[]
-  ) => {
-    setIsSaving(true);
-    try {
-      await fetch("/api/formazione", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          schema: nuovoSchema,
-          titolari: nuoviTitolari,
-          panchina: nuovaPanchina,
-        }),
-      });
-    } catch (err) {
-      console.error("Errore salvataggio server:", err);
-    } finally {
-      setTimeout(() => setIsSaving(false), 300);
-    }
+      return nuovo;
+    });
   };
 
-  const cambiaSchema = (nuovoSchema: string) => {
-    setSchema(nuovoSchema);
-    salvaSuServer(nuovoSchema, titolari, panchina);
-  };
+  const getGiocatoreById = (id: string) => rosa.find((g) => g.id === id);
 
-  const gestisciSelezionaTitolare = (giocatoreId: string, slotIndex: number) => {
-    const nuoviTitolari = [...titolari];
-    const indexEsistente = nuoviTitolari.indexOf(giocatoreId);
-    if (indexEsistente !== -1) {
-      nuoviTitolari[indexEsistente] = null;
-    }
+  // Suddivisione per linee di campo
+  const por = posizioni.slice(0, 1);
+  const dif = posizioni.filter((p) => p.etichetta.includes("D") || p.etichetta.includes("TS") || p.etichetta.includes("TD"));
+  const cen = posizioni.filter((p) => p.etichetta.includes("CC") || p.etichetta.includes("MED") || p.etichetta.includes("MEZ") || p.etichetta.includes("CL") || p.etichetta === "E");
+  const att = posizioni.filter((p) => p.etichetta.includes("ATT") || p.etichetta.includes("PC") || p.etichetta.includes("AD") || p.etichetta.includes("AS"));
 
-    nuoviTitolari[slotIndex] = giocatoreId;
-    setTitolari(nuoviTitolari);
+  const renderLinea = (lineaPosizioni: typeof posizioni) => (
+    <div className="flex justify-around items-center w-full my-2">
+      {lineaPosizioni.map((pos) => {
+        const index = posizioni.indexOf(pos);
+        const selezionatoId = titolari[index];
+        const gioc = selezionatoId ? getGiocatoreById(selezionatoId) : null;
 
-    const nuovaPanchina = panchina.filter((id) => id !== giocatoreId);
-    setPanchina(nuovaPanchina);
-
-    salvaSuServer(schema, nuoviTitolari, nuovaPanchina);
-  };
-
-  const rimuoviTitolare = (slotIndex: number) => {
-    const nuoviTitolari = [...titolari];
-    nuoviTitolari[slotIndex] = null;
-    setTitolari(nuoviTitolari);
-    salvaSuServer(schema, nuoviTitolari, panchina);
-  };
-
-  const togglePanchina = (giocatoreId: string) => {
-    let nuovaPanchina = [...panchina];
-    let nuoviTitolari = [...titolari];
-
-    const idxTitolare = nuoviTitolari.indexOf(giocatoreId);
-    if (idxTitolare !== -1) {
-      nuoviTitolari[idxTitolare] = null;
-    }
-
-    if (nuovaPanchina.includes(giocatoreId)) {
-      nuovaPanchina = nuovaPanchina.filter((id) => id !== giocatoreId);
-    } else {
-      nuovaPanchina.push(giocatoreId);
-    }
-
-    setTitolari(nuoviTitolari);
-    setPanchina(nuovaPanchina);
-    salvaSuServer(schema, nuoviTitolari, nuovaPanchina);
-  };
-
-  const getNomeGiocatore = (g: Giocatore) => g.nome || g.calciatore || "Giocatore";
-  const getRuoloGiocatore = (g: Giocatore) => g.ruolo || g.ruolo_breve || "";
-
-  if (isInitialLoading) {
-    return (
-      <div className="p-8 text-center text-gray-400">
-        Caricamento formazione in corso...
-      </div>
-    );
-  }
-
-  if (!rosa || rosa.length === 0) {
-    return (
-      <div className="border border-amber-500/30 bg-slate-900/60 rounded-xl p-8 text-center shadow-lg">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-amber-400 flex items-center gap-2">
-            ⭐ La Mia Formazione
-          </h2>
-          <button
-            onClick={onApriGestioneRosa}
-            className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold px-4 py-2 rounded-lg transition-all"
-          >
-            ✏️ Gestisci Rosa
-          </button>
-        </div>
-        <p className="text-gray-400 italic">
-          Nessun giocatore in rosa. Clicca su &quot;Gestisci Rosa&quot; in alto per inserire i tuoi calciatori!
-        </p>
-      </div>
-    );
-  }
+        return (
+          <div key={index} className="flex flex-col items-center">
+            <div className="w-16 h-16 md:w-20 md:h-20 bg-slate-900/90 border-2 border-emerald-400/60 rounded-full flex flex-col justify-center items-center p-1 text-center shadow-md relative group hover:border-emerald-300 transition">
+              <span className="text-[10px] font-bold text-amber-400 uppercase tracking-tighter">
+                {pos.etichetta}
+              </span>
+              <select
+                value={selezionatoId || ""}
+                onChange={(e) => impostaTitolare(index, e.target.value)}
+                className="w-full bg-transparent text-[11px] font-semibold text-white text-center focus:outline-none cursor-pointer truncate px-1"
+              >
+                <option value="" className="bg-slate-900 text-slate-400">
+                  + Scegli
+                </option>
+                {rosa.map((g) => (
+                  <option key={g.id} value={g.id} className="bg-slate-900 text-white">
+                    {g.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {gioc && (
+              <span className="text-[10px] text-emerald-300 font-medium mt-1 max-w-[80px] truncate bg-slate-950/80 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                {gioc.squadra}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 
   return (
-    <div className="border border-amber-500/30 bg-slate-900/60 rounded-xl p-6 shadow-lg mb-8">
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <div className="flex items-center gap-3">
-          <h2 className="text-2xl font-bold text-amber-400 flex items-center gap-2">
-            ⭐ La Mia Formazione
-          </h2>
-          {isSaving && (
-            <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-1 rounded animate-pulse">
-              Salvataggio...
-            </span>
-          )}
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-6 shadow-xl">
+      {/* Header Controlli */}
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6 border-b border-slate-800 pb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">⭐</span>
+          <h2 className="text-xl font-bold text-amber-400 tracking-wide">La Mia Formazione</h2>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-300 font-medium">Schema:</label>
-            <select
-              value={schema}
-              onChange={(e) => cambiaSchema(e.target.value)}
-              className="bg-slate-800 text-white font-semibold border border-amber-500/40 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-amber-400"
-            >
-              {SCHEMI_DISPONIBILI.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="flex items-center gap-3">
+          <label className="text-xs text-slate-400 font-semibold uppercase">Modulo:</label>
+          <select
+            value={modulo}
+            onChange={(e) => setModulo(e.target.value)}
+            className="bg-slate-950 border border-slate-700 text-white text-sm font-bold rounded-lg px-3 py-1.5 focus:outline-none focus:border-amber-500"
+          >
+            <option value="4-3-3">4-3-3</option>
+            <option value="4-4-2">4-4-2</option>
+            <option value="3-5-2">3-5-2</option>
+          </select>
 
           <button
             onClick={onApriGestioneRosa}
-            className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold px-4 py-2 rounded-lg transition-all text-sm"
+            className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-3.5 py-2 rounded-lg transition shadow-md flex items-center gap-1.5"
           >
             ✏️ Gestisci Rosa
           </button>
         </div>
       </div>
 
-      <div className="mb-8">
-        <h3 className="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
-          🏃 Titolari (11)
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {titolari.map((giocatoreId, idx) => {
-            const giocatore = rosa.find((g) => String(g.id) === String(giocatoreId));
+      {/* CAMPO DA GIOCO GREEN */}
+      <div className="relative w-full bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 border-4 border-slate-800 rounded-xl p-4 md:p-8 overflow-hidden shadow-2xl flex flex-col justify-between min-h-[420px]">
+        {/* Righe Campo da Calcio */}
+        <div className="absolute inset-x-0 top-1/2 h-0.5 bg-white/20 -translate-y-1/2" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border-2 border-white/20 rounded-full pointer-events-none" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-20 border-b-2 border-x-2 border-white/20 pointer-events-none" />
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-20 border-t-2 border-x-2 border-white/20 pointer-events-none" />
 
-            return (
-              <div
-                key={idx}
-                className={`p-3 rounded-lg border flex flex-col justify-between min-h-[90px] ${
-                  giocatore
-                    ? "bg-slate-800/80 border-amber-500/40"
-                    : "bg-slate-950/40 border-dashed border-gray-700"
-                }`}
-              >
-                <div className="text-xs text-amber-400 font-semibold mb-1">
-                  Slot #{idx + 1}
-                </div>
-
-                {giocatore ? (
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <div className="font-semibold text-white text-sm">{getNomeGiocatore(giocatore)}</div>
-                      <div className="text-xs text-gray-400">
-                        {getRuoloGiocatore(giocatore)} {giocatore.squadra ? `- ${giocatore.squadra}` : ""}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => rimuoviTitolare(idx)}
-                      className="text-red-400 hover:text-red-300 text-xs px-2 py-1 rounded bg-red-950/30"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ) : (
-                  <select
-                    value=""
-                    onChange={(e) => gestisciSelezionaTitolare(e.target.value, idx)}
-                    className="bg-slate-900 text-gray-400 border border-slate-700 rounded text-xs p-1.5 focus:outline-none"
-                  >
-                    <option value="" disabled>
-                      -- Seleziona Giocatore --
-                    </option>
-                    {rosa
-                      .filter((g) => !titolari.includes(String(g.id)) && !panchina.includes(String(g.id)))
-                      .map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {getNomeGiocatore(g)} ({getRuoloGiocatore(g)})
-                        </option>
-                      ))}
-                  </select>
-                )}
-              </div>
-            );
-          })}
+        {/* Reparti Tattici */}
+        <div className="relative z-10 space-y-4">
+          {renderLinea(att)}
+          {renderLinea(cen)}
+          {renderLinea(dif)}
+          {renderLinea(por)}
         </div>
       </div>
 
-      <div>
-        <h3 className="text-lg font-semibold text-gray-200 mb-3">🪑 Panchina</h3>
+      {/* Panchina */}
+      <div className="mt-6 border-t border-slate-800 pt-4">
+        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          🪑 Panchina ({rosa.filter((g) => !Object.values(titolari).includes(g.id)).length})
+        </h3>
         <div className="flex flex-wrap gap-2">
           {rosa.map((g) => {
-            const isTitolare = titolari.includes(String(g.id));
-            const isPanchina = panchina.includes(String(g.id));
-
+            const inCampo = Object.values(titolari).includes(g.id);
             return (
-              <button
+              <span
                 key={g.id}
-                onClick={() => togglePanchina(String(g.id))}
-                disabled={isTitolare}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
-                  isTitolare
-                    ? "opacity-30 cursor-not-allowed bg-slate-800 border-slate-700 text-gray-400"
-                    : isPanchina
-                    ? "bg-amber-500/20 text-amber-300 border-amber-500/60"
-                    : "bg-slate-800/60 text-gray-300 border-slate-700 hover:border-gray-500"
+                className={`text-xs px-2.5 py-1 rounded-full font-medium border transition ${
+                  inCampo
+                    ? "bg-slate-950/50 text-slate-600 border-slate-800 line-through"
+                    : "bg-slate-800 text-slate-200 border-slate-700 shadow-sm"
                 }`}
               >
-                {getNomeGiocatore(g)} ({getRuoloGiocatore(g)}) {isPanchina && "✓"}
-              </button>
+                {g.nome} ({g.squadra})
+              </span>
             );
           })}
         </div>
