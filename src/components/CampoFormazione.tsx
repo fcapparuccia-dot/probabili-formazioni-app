@@ -4,11 +4,14 @@ import React, { useState, useEffect } from "react";
 
 export type Giocatore = {
   id: string;
-  nome: string;
-  ruolo: string;
-  squadra: string;
+  nome?: string;
+  calciatore?: string;
+  ruolo?: string;
+  ruolo_breve?: string;
+  squadra?: string;
   titolare?: boolean;
   panchina?: boolean;
+  [key: string]: any;
 };
 
 type CampoFormazioneProps = {
@@ -25,7 +28,6 @@ export default function CampoFormazione({ rosa, onApriGestioneRosa }: CampoForma
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
 
-  // Caricamento iniziale della formazione via API
   useEffect(() => {
     async function caricaFormazione() {
       try {
@@ -45,7 +47,6 @@ export default function CampoFormazione({ rosa, onApriGestioneRosa }: CampoForma
     caricaFormazione();
   }, []);
 
-  // Salvataggio sul server via API POST
   const salvaSuServer = async (
     nuovoSchema: string,
     nuoviTitolari: (string | null)[],
@@ -76,8 +77,6 @@ export default function CampoFormazione({ rosa, onApriGestioneRosa }: CampoForma
 
   const gestisciSelezionaTitolare = (giocatoreId: string, slotIndex: number) => {
     const nuoviTitolari = [...titolari];
-    
-    // Rimuovi se già presente in un altro slot
     const indexEsistente = nuoviTitolari.indexOf(giocatoreId);
     if (indexEsistente !== -1) {
       nuoviTitolari[indexEsistente] = null;
@@ -86,7 +85,6 @@ export default function CampoFormazione({ rosa, onApriGestioneRosa }: CampoForma
     nuoviTitolari[slotIndex] = giocatoreId;
     setTitolari(nuoviTitolari);
 
-    // Rimuovi dalla panchina se presente
     const nuovaPanchina = panchina.filter((id) => id !== giocatoreId);
     setPanchina(nuovaPanchina);
 
@@ -104,7 +102,6 @@ export default function CampoFormazione({ rosa, onApriGestioneRosa }: CampoForma
     let nuovaPanchina = [...panchina];
     let nuoviTitolari = [...titolari];
 
-    // Se è in titolari, rimuovilo
     const idxTitolare = nuoviTitolari.indexOf(giocatoreId);
     if (idxTitolare !== -1) {
       nuoviTitolari[idxTitolare] = null;
@@ -120,6 +117,9 @@ export default function CampoFormazione({ rosa, onApriGestioneRosa }: CampoForma
     setPanchina(nuovaPanchina);
     salvaSuServer(schema, nuoviTitolari, nuovaPanchina);
   };
+
+  const getNomeGiocatore = (g: Giocatore) => g.nome || g.calciatore || "Giocatore";
+  const getRuoloGiocatore = (g: Giocatore) => g.ruolo || g.ruolo_breve || "";
 
   if (isInitialLoading) {
     return (
@@ -189,14 +189,13 @@ export default function CampoFormazione({ rosa, onApriGestioneRosa }: CampoForma
         </div>
       </div>
 
-      {/* Griglia Titolari */}
       <div className="mb-8">
         <h3 className="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
           🏃 Titolari (11)
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {titolari.map((giocatoreId, idx) => {
-            const giocatore = rosa.find((g) => g.id === giocatoreId);
+            const giocatore = rosa.find((g) => String(g.id) === String(giocatoreId));
 
             return (
               <div
@@ -214,9 +213,9 @@ export default function CampoFormazione({ rosa, onApriGestioneRosa }: CampoForma
                 {giocatore ? (
                   <div className="flex justify-between items-center">
                     <div>
-                      <div className="font-semibold text-white text-sm">{giocatore.nome}</div>
+                      <div className="font-semibold text-white text-sm">{getNomeGiocatore(giocatore)}</div>
                       <div className="text-xs text-gray-400">
-                        {giocatore.ruolo} - {giocatore.squadra}
+                        {getRuoloGiocatore(giocatore)} {giocatore.squadra ? `- ${giocatore.squadra}` : ""}
                       </div>
                     </div>
                     <button
@@ -236,10 +235,10 @@ export default function CampoFormazione({ rosa, onApriGestioneRosa }: CampoForma
                       -- Seleziona Giocatore --
                     </option>
                     {rosa
-                      .filter((g) => !titolari.includes(g.id) && !panchina.includes(g.id))
+                      .filter((g) => !titolari.includes(String(g.id)) && !panchina.includes(String(g.id)))
                       .map((g) => (
                         <option key={g.id} value={g.id}>
-                          {g.nome} ({g.ruolo} - {g.squadra})
+                          {getNomeGiocatore(g)} ({getRuoloGiocatore(g)})
                         </option>
                       ))}
                   </select>
@@ -250,18 +249,17 @@ export default function CampoFormazione({ rosa, onApriGestioneRosa }: CampoForma
         </div>
       </div>
 
-      {/* Sezione Panchina */}
       <div>
         <h3 className="text-lg font-semibold text-gray-200 mb-3">🪑 Panchina</h3>
         <div className="flex flex-wrap gap-2">
           {rosa.map((g) => {
-            const isTitolare = titolari.includes(g.id);
-            const isPanchina = panchina.includes(g.id);
+            const isTitolare = titolari.includes(String(g.id));
+            const isPanchina = panchina.includes(String(g.id));
 
             return (
               <button
                 key={g.id}
-                onClick={() => togglePanchina(g.id)}
+                onClick={() => togglePanchina(String(g.id))}
                 disabled={isTitolare}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
                   isTitolare
@@ -271,7 +269,7 @@ export default function CampoFormazione({ rosa, onApriGestioneRosa }: CampoForma
                     : "bg-slate-800/60 text-gray-300 border-slate-700 hover:border-gray-500"
                 }`}
               >
-                {g.nome} ({g.ruolo}) {isPanchina && "✓"}
+                {getNomeGiocatore(g)} ({getRuoloGiocatore(g)}) {isPanchina && "✓"}
               </button>
             );
           })}

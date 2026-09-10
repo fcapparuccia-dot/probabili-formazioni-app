@@ -116,13 +116,15 @@ export default function ProbabiliFormazioniPage() {
       const panchina: GiocatoreProbabile[] = [];
 
       miaFormData.forEach((row: any) => {
-        const gId = row.giocatori?.id;
+        if (!row.giocatori) return;
+
+        const gId = row.giocatori.id;
         const infoScraper = mapGiocatori.get(gId);
 
         const gObj: GiocatoreProbabile = {
           id: gId,
-          nome_completo: row.giocatori?.nome_completo || "Sconosciuto",
-          squadra: row.giocatori?.squadre?.nome || "",
+          nome_completo: row.giocatori.nome_completo || "Sconosciuto",
+          squadra: row.giocatori.squadre?.nome || "",
           percentuale: infoScraper ? infoScraper.percentuale : 0,
           stato: infoScraper ? infoScraper.stato : "panchina",
         };
@@ -218,8 +220,12 @@ export default function ProbabiliFormazioniPage() {
     );
   }
 
-  // Prepariamo la rosa totale per il Drag & Drop sul Campo
-  const rosaCompleta = [...miaFormazione.titolari, ...miaFormazione.panchina];
+  // Adattiamo la rosa al formato atteso da CampoFormazione
+  const rosaFormatta = [...miaFormazione.titolari, ...miaFormazione.panchina].map((g) => ({
+    id: g.id,
+    nome: g.nome_completo,
+    squadra: g.squadra,
+  }));
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
@@ -291,17 +297,29 @@ export default function ProbabiliFormazioniPage() {
                   <p className="text-xs text-slate-400 mt-1">Ricerca in corso...</p>
                 )}
               </div>
+
+              {/* LISTA GIOCATORI IN ROSA CON POSSIBILITÀ DI ELIMINARE */}
+              {rosaFormatta.length > 0 && (
+                <div className="mt-4 border-t border-slate-800 pt-3">
+                  <h4 className="text-xs font-semibold text-slate-400 mb-2">Giocatori in rosa ({rosaFormatta.length}):</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {rosaFormatta.map((g) => (
+                      <span key={g.id} className="inline-flex items-center gap-1 text-xs bg-slate-800 text-slate-200 px-2 py-1 rounded border border-slate-700">
+                        {g.nome}
+                        <button onClick={() => rimuoviGiocatore(g.id)} className="text-red-400 hover:text-red-300 font-bold ml-1">✕</button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* VISTA CAMPO DI CALCIO CON DRAG & DROP */}
-          {rosaCompleta.length === 0 ? (
-            <p className="text-slate-500 text-sm italic text-center py-6">
-              Nessun giocatore in rosa. Clicca su <strong>"Gestisci Rosa"</strong> in alto per inserire i tuoi calciatori!
-            </p>
-          ) : (
-            <CampoFormazione rosa={rosaCompleta} />
-          )}
+          {/* VISTA CAMPO DI CALCIO */}
+          <CampoFormazione
+            rosa={rosaFormatta as any}
+            onApriGestioneRosa={() => setIsGestioneOpen(!isGestioneOpen)}
+          />
         </section>
 
         {/* ================= SCHEDE PARTITE ================= */}
