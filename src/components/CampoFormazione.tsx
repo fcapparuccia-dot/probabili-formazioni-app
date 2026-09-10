@@ -33,13 +33,15 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
 
   // Normalizziamo la rosa associando univocamente l'UUID
   const rosaNormalizzata = useMemo(() => {
-    return (rosaIniziale || []).map((g) => ({
-      ...g,
-      id: g.id || g.id_giocatore || "",
-    })).filter((g) => g.id !== "");
+    return (rosaIniziale || [])
+      .map((g) => ({
+        ...g,
+        id: g.id || g.id_giocatore || "",
+      }))
+      .filter((g) => g.id !== "");
   }, [rosaIniziale]);
 
-  // 1. CARICAMENTO ALL'AVVIO DA API (SUPABASE) WITH ANTI-CACHE
+  // 1. CARICAMENTO ALL'AVVIO DA API (SUPABASE) CON PREVENZIONE CACHE
   useEffect(() => {
     if (!rosaNormalizzata || rosaNormalizzata.length === 0) return;
 
@@ -63,7 +65,6 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
           const saved = await res.json();
 
           if (saved && (saved.titolari?.length > 0 || saved.panchina?.length > 0)) {
-            // Mappa i titolari salvati
             const titolariRic: SlotCampo[] = (saved.titolari || []).map((id: string | null) =>
               id ? mappaRosa.get(id) || null : null
             );
@@ -72,12 +73,10 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
               titolariRic.push(null);
             }
 
-            // Mappa la panchina salvata
             const panchinaRic: GiocatoreProbabile[] = (saved.panchina || [])
               .map((id: string) => mappaRosa.get(id))
               .filter((g: any): g is GiocatoreProbabile => g !== undefined);
 
-            // Aggiunge in coda alla panchina i giocatori non ancora posizionati
             const inseritiIds = new Set([
               ...titolariRic.filter(Boolean).map((g) => g!.id),
               ...panchinaRic.map((g) => g.id),
@@ -97,7 +96,6 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
         console.error("Errore recupero formazione dal server:", e);
       }
 
-      // Fallback in caso di primo avvio in assoluto
       const primi11: SlotCampo[] = rosaNormalizzata.slice(0, 11);
       while (primi11.length < 11) primi11.push(null);
       setTitolari(primi11);
@@ -114,7 +112,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
     setTitolari(nuoviTitolari);
     setPanchina(nuovaPanchina);
 
-    if (!isLoaded) return; // Non sovrascrive se non ha completato il primo load
+    if (!isLoaded) return;
 
     setIsSaving(true);
     const titolariIds = nuoviTitolari.map((g) => (g ? g.id : null));
@@ -226,21 +224,25 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
     "3-4-2-1": [3, 4, 2, 1],
   };
 
+  // -------------------------------------------------------------
+  // MAPPAZIONE RIGOROSA DEGLI INDICI SUL CAMPO
+  // Index 0: Portiere (in basso)
+  // Index 1..N: Difesa, Centrocampo, Attacco (dal basso verso l'alto)
+  // -------------------------------------------------------------
   const portiere = titolari[0] || null;
-  const giocatoriCampo = titolari.slice(1);
-
   const struttura = schemiMap[schema] || [4, 4, 2];
+  
   const reparti: { slot: SlotCampo; realIndex: number }[][] = [];
-  let globalIdx = 1;
+  let currentIdx = 1;
 
   struttura.forEach((numGiocatori) => {
     const riga: { slot: SlotCampo; realIndex: number }[] = [];
     for (let i = 0; i < numGiocatori; i++) {
       riga.push({
-        slot: giocatoriCampo[globalIdx - 1] || null,
-        realIndex: globalIdx,
+        slot: titolari[currentIdx] || null,
+        realIndex: currentIdx,
       });
-      globalIdx++;
+      currentIdx++;
     }
     reparti.push(riga);
   });
@@ -333,24 +335,11 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
               <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-20 border-t-2 border-x-2 border-white"></div>
             </div>
 
-            <div className="relative z-10 h-full flex flex-col-reverse justify-between items-center py-2">
-              <div className="w-full flex justify-center">
-                <SlotCampoGiocatore
-                  giocatore={portiere}
-                  index={0}
-                  getBadgeColor={getBadgeColor}
-                  isSelected={selectedSlotIndex === 0}
-                  onMouseDown={() => handleMouseDown(0)}
-                  onMouseUp={handleMouseUp}
-                  onClick={() => handleClickSlot(0)}
-                  onRimuovi={() => rimuoviTitolare(0)}
-                  onDragStart={handleDragStart}
-                  onDragOver={handleDragOver}
-                  onDrop={() => handleDropOnSlot(0)}
-                />
-              </div>
-
-              {reparti.map((linea, rIdx) => (
+            {/* CAMPO DA GIOCO: ATTACCO IN ALTO, PORTIERE IN BASSO */}
+            <div className="relative z-10 h-full flex flex-col justify-between items-center py-2">
+              
+              {/* RIGHE DI GIOCATORI: ATTACCO -> CENTROCAMPO -> DIFESA */}
+              {reparti.slice().reverse().map((linea, rIdx) => (
                 <div key={rIdx} className="w-full flex justify-around items-center px-4">
                   {linea.map(({ slot, realIndex }) => (
                     <SlotCampoGiocatore
@@ -370,6 +359,24 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
                   ))}
                 </div>
               ))}
+
+              {/* PORTIERE: INDICE 0 (IN BASSO AL CENTRO) */}
+              <div className="w-full flex justify-center">
+                <SlotCampoGiocatore
+                  giocatore={portiere}
+                  index={0}
+                  getBadgeColor={getBadgeColor}
+                  isSelected={selectedSlotIndex === 0}
+                  onMouseDown={() => handleMouseDown(0)}
+                  onMouseUp={handleMouseUp}
+                  onClick={() => handleClickSlot(0)}
+                  onRimuovi={() => rimuoviTitolare(0)}
+                  onDragStart={handleDragStart}
+                  onDragOver={handleDragOver}
+                  onDrop={() => handleDropOnSlot(0)}
+                />
+              </div>
+
             </div>
           </div>
         </div>
