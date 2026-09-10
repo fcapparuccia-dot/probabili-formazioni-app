@@ -222,14 +222,14 @@ export default function CampoFormazione({
             className="flex flex-col items-center group cursor-pointer max-w-[24%] sm:max-w-none"
           >
             <div className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-slate-900/90 border-2 border-emerald-400/80 rounded-full flex flex-col justify-center items-center p-0.5 sm:p-1 text-center shadow-lg relative transition hover:scale-105 hover:border-emerald-300">
-              <span className="text-[10px] sm:text-[11px] font-extrabold text-amber-400 uppercase tracking-tighter">
+              <span className="text-[12px] sm:text-[13px] font-extrabold text-amber-400 uppercase tracking-tighter">
                 {pos.etichetta}
               </span>
 
               <select
                 value={selezionatoId || ""}
                 onChange={(e) => assegnaGiocatoreAPosizione(pos.id, e.target.value)}
-                className="w-full bg-transparent text-[11px] sm:text-[12px] font-bold text-white text-center focus:outline-none cursor-pointer truncate px-0.5"
+                className="w-full bg-transparent text-[13px] sm:text-[14px] font-bold text-white text-center focus:outline-none cursor-pointer truncate px-0.5"
               >
                 <option value="" className="bg-slate-900 text-slate-400">
                   + Scegli
@@ -243,11 +243,11 @@ export default function CampoFormazione({
             </div>
 
             {gioc && (
-              <div className="mt-1 flex flex-col items-center max-w-[90px] sm:max-w-[120px]">
-                <span className="text-[11px] sm:text-[12px] font-extrabold text-white bg-slate-950/95 px-1.5 sm:px-2 py-0.5 rounded border border-emerald-500/50 shadow truncate w-full text-center">
+              <div className="mt-1 flex flex-col items-center max-w-[95px] sm:max-w-[125px]">
+                <span className="text-[13px] sm:text-[14px] font-extrabold text-white bg-slate-950/95 px-1.5 sm:px-2 py-0.5 rounded border border-emerald-500/50 shadow truncate w-full text-center">
                   {gioc.nome}
                 </span>
-                <span className="text-[9px] sm:text-[10px] font-extrabold text-amber-400 bg-slate-900/95 px-1.5 py-0.2 rounded mt-0.5">
+                <span className="text-[11px] sm:text-[12px] font-extrabold text-amber-400 bg-slate-900/95 px-1.5 py-0.2 rounded mt-0.5">
                   {gioc.percentuale}%
                 </span>
               </div>
