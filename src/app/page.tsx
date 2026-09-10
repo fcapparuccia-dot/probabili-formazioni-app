@@ -303,7 +303,7 @@ export default function ProbabiliFormazioniPage() {
 
           {/* VISTA CAMPO DI CALCIO */}
           <CampoFormazione
-            rosaCompleta={rosaFormatta as any}
+            rosa={rosaFormatta as any}
             onApriGestioneRosa={() => setIsGestioneOpen(!isGestioneOpen)}
           />
         </section>
