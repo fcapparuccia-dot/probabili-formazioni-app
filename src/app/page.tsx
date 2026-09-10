@@ -285,9 +285,9 @@ export default function ProbabiliFormazioniPage() {
           </div>
         )}
 
-        {/* COMPONENTE CAMPO CHE CONTIENE GIÀ IL BOX ⭐ LA MIA FORMAZIONE */}
+        {/* PASSAGGIO CORRETTO DELLA PROP "rosa" */}
         <CampoFormazione
-          rosaCompleta={rosaFormatta as any}
+          rosa={rosaFormatta as any}
           onApriGestioneRosa={() => setIsGestioneOpen(!isGestioneOpen)}
         />
 
