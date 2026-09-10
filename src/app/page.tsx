@@ -94,7 +94,7 @@ export default function ProbabiliFormazioniPage() {
   }
 
   async function ricaricaMiaFormazione(mapGiocatori = tuttiGiocatoriMap) {
-    const { data: miaFormData } = await supabase
+    const { data: miaFormData, error } = await supabase
       .from("mia_formazione")
       .select(`
         id,
@@ -107,6 +107,11 @@ export default function ProbabiliFormazioniPage() {
         )
       `)
       .order("ordine", { ascending: true });
+
+    if (error) {
+      console.error("Errore lettura mia_formazione:", error.message || error);
+      return;
+    }
 
     if (miaFormData) {
       const listaRosa: GiocatoreProbabile[] = [];
@@ -181,7 +186,7 @@ export default function ProbabiliFormazioniPage() {
   }
 
   async function aggiungiGiocatore(giocatoreId: string) {
-    await supabase.from("mia_formazione").upsert(
+    const { error } = await supabase.from("mia_formazione").upsert(
       {
         giocatore_id: giocatoreId,
         posizione: "PANCHINA",
@@ -190,13 +195,28 @@ export default function ProbabiliFormazioniPage() {
       { onConflict: "giocatore_id" }
     );
 
+    if (error) {
+      console.error("Errore aggiunta giocatore in mia_formazione:", error.message || error);
+      alert("Errore nell'inserimento del giocatore: " + error.message);
+      return;
+    }
+
     setSearchQuery("");
     setSearchResults([]);
     await ricaricaMiaFormazione();
   }
 
   async function rimuoviGiocatore(giocatoreId: string) {
-    await supabase.from("mia_formazione").delete().eq("giocatore_id", giocatoreId);
+    const { error } = await supabase
+      .from("mia_formazione")
+      .delete()
+      .eq("giocatore_id", giocatoreId);
+
+    if (error) {
+      console.error("Errore rimozione giocatore:", error.message || error);
+      return;
+    }
+
     await ricaricaMiaFormazione();
   }
 
@@ -285,7 +305,7 @@ export default function ProbabiliFormazioniPage() {
           </div>
         )}
 
-        {/* PASSAGGIO CORRETTO DELLA PROP "rosa" */}
+        {/* CAMPO FORMAZIONE */}
         <CampoFormazione
           rosa={rosaFormatta as any}
           onApriGestioneRosa={() => setIsGestioneOpen(!isGestioneOpen)}
