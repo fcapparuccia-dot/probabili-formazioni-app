@@ -125,7 +125,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
       });
     } catch (err) {
       console.error("Errore salvataggio server:", err);
-    } fontally {
+    } finally {
       setTimeout(() => setIsSaving(false), 300);
     }
   };
