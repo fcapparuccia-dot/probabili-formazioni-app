@@ -31,7 +31,6 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Normalizziamo la rosa associando univocamente l'UUID
   const rosaNormalizzata = useMemo(() => {
     return (rosaIniziale || [])
       .map((g) => ({
@@ -41,7 +40,6 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
       .filter((g) => g.id !== "");
   }, [rosaIniziale]);
 
-  // 1. CARICAMENTO ALL'AVVIO DA API (SUPABASE) CON PREVENZIONE CACHE
   useEffect(() => {
     if (!rosaNormalizzata || rosaNormalizzata.length === 0) return;
 
@@ -53,13 +51,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
 
     async function caricaFormazioneDaServer() {
       try {
-        const res = await fetch(`/api/formazione?t=${Date.now()}`, {
-          cache: "no-store",
-          headers: {
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-          },
-        });
+        const res = await fetch(`/api/formazione?t=${Date.now()}`);
 
         if (res.ok) {
           const saved = await res.json();
@@ -85,7 +77,6 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
             const rimanentiRosa = rosaNormalizzata.filter((g) => !inseritiIds.has(g.id));
             const panchinaFinale = [...panchinaRic, ...rimanentiRosa];
 
-            setSchema(saved.schema || "4-4-2");
             setTitolari(titolariRic.slice(0, 11));
             setPanchina(panchinaFinale);
             setIsLoaded(true);
@@ -106,8 +97,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
     caricaFormazioneDaServer();
   }, [rosaNormalizzata]);
 
-  // 2. SALVATAGGIO SUL SERVER
-  const salvaFormazione = (nuovoSchema: string, nuoviTitolari: SlotCampo[], nuovaPanchina: GiocatoreProbabile[]) => {
+  const salvaFormazione = async (nuovoSchema: string, nuoviTitolari: SlotCampo[], nuovaPanchina: GiocatoreProbabile[]) => {
     setSchema(nuovoSchema);
     setTitolari(nuoviTitolari);
     setPanchina(nuovaPanchina);
@@ -118,19 +108,20 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
     const titolariIds = nuoviTitolari.map((g) => (g ? g.id : null));
     const panchinaIds = nuovaPanchina.map((g) => g.id);
 
-    fetch("/api/formazione", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        schema: nuovoSchema,
-        titolari: titolariIds,
-        panchina: panchinaIds,
-      }),
-    })
-      .catch((err) => console.error("Errore salvataggio server:", err))
-      .finally(() => {
-        setTimeout(() => setIsSaving(false), 300);
+    try {
+      await fetch("/api/formazione", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          titolari: titolariIds,
+          panchina: panchinaIds,
+        }),
       });
+    } catch (err) {
+      console.error("Errore salvataggio server:", err);
+    } finally {
+      setTimeout(() => setIsSaving(false), 300);
+    }
   };
 
   const getBadgeColor = (perc: number) => {
@@ -224,14 +215,9 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
     "3-4-2-1": [3, 4, 2, 1],
   };
 
-  // -------------------------------------------------------------
-  // MAPPAZIONE RIGOROSA DEGLI INDICI SUL CAMPO
-  // Index 0: Portiere (in basso)
-  // Index 1..N: Difesa, Centrocampo, Attacco (dal basso verso l'alto)
-  // -------------------------------------------------------------
   const portiere = titolari[0] || null;
   const struttura = schemiMap[schema] || [4, 4, 2];
-  
+
   const reparti: { slot: SlotCampo; realIndex: number }[][] = [];
   let currentIdx = 1;
 
@@ -287,7 +273,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
         </div>
       )}
 
-      {/* HEADER CONTROLLI */}
+      {/* HEADER CONTROLLI SCHEMA */}
       <div
         className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex items-center justify-between gap-4"
         onClick={(e) => e.stopPropagation()}
@@ -321,13 +307,14 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
         </div>
       </div>
 
-      {/* GRIGLIA CAMPO + PANCHINA */}
+      {/* CAMPO DA GIOCO E PANCHINA */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div
           className="lg:col-span-8 bg-emerald-800 rounded-2xl p-4 border-2 border-emerald-600 shadow-2xl relative lg:sticky lg:top-4 z-20"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="relative w-full aspect-[4/3] bg-emerald-700/80 rounded-xl border-2 border-white/80 flex flex-col justify-between p-4 min-h-[480px]">
+            {/* TRACCIATO CAMPO */}
             <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-30">
               <div className="w-full h-1/2 border-b-2 border-white"></div>
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-36 h-36 border-2 border-white rounded-full"></div>
@@ -335,10 +322,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
               <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-20 border-t-2 border-x-2 border-white"></div>
             </div>
 
-            {/* CAMPO DA GIOCO: ATTACCO IN ALTO, PORTIERE IN BASSO */}
             <div className="relative z-10 h-full flex flex-col justify-between items-center py-2">
-              
-              {/* RIGHE DI GIOCATORI: ATTACCO -> CENTROCAMPO -> DIFESA */}
               {reparti.slice().reverse().map((linea, rIdx) => (
                 <div key={rIdx} className="w-full flex justify-around items-center px-4">
                   {linea.map(({ slot, realIndex }) => (
@@ -360,7 +344,6 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
                 </div>
               ))}
 
-              {/* PORTIERE: INDICE 0 (IN BASSO AL CENTRO) */}
               <div className="w-full flex justify-center">
                 <SlotCampoGiocatore
                   giocatore={portiere}
@@ -376,12 +359,11 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
                   onDrop={() => handleDropOnSlot(0)}
                 />
               </div>
-
             </div>
           </div>
         </div>
 
-        {/* ROSA / PANCHINA */}
+        {/* ROSA E PANCHINA */}
         <div
           className="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-xl p-4"
           onClick={(e) => e.stopPropagation()}
@@ -395,7 +377,7 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
             {haGiocatoriEliminati && (
               <button
                 onClick={ripristinaRosaCompleta}
-                className="text-[11px] bg-slate-800 text-amber-400 border border-amber-500/30 px-2 py-1 rounded"
+                className="text-[11px] bg-slate-800 text-amber-400 border border-amber-500/30 px-2 py-1 rounded hover:bg-slate-700"
               >
                 🔄 Ripristina
               </button>
@@ -496,7 +478,7 @@ function SlotCampoGiocatore({
           onMouseDown={onMouseDown}
           onMouseUp={onMouseUp}
           onClick={onClick}
-          className="flex flex-col items-center cursor-grab active:cursor-grabbing hover:scale-105"
+          className="flex flex-col items-center cursor-grab active:cursor-grabbing hover:scale-105 transition-transform"
         >
           <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border mb-1 ${getBadgeColor(giocatore.percentuale)}`}>
             {giocatore.percentuale}%

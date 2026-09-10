@@ -1,111 +1,105 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-// DISABILITA LA CACHE NEXT.JS SUL BACKEND
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
-// Helper per verificare se una stringa è un UUID valido
-function isUUID(str: string) {
-  const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  return regex.test(str);
-}
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// GET: Recupera la formazione salvata
 export async function GET() {
   try {
     const { data, error } = await supabase
-      .from('mia_formazione')
-      .select('*')
-      .order('ordine', { ascending: true });
+      .from("mia_formazione")
+      .select("*")
+      .order("ordine", { ascending: true });
 
     if (error) {
-      console.error('Errore lettura Supabase:', error);
+      console.error("Errore recupero Supabase:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    if (!data || data.length === 0) {
-      return NextResponse.json(
-        { titolari: [], panchina: [], schema: '4-4-2' },
-        {
-          headers: {
-            'Cache-Control': 'no-store, max-age=0, must-revalidate',
-          },
-        }
-      );
-    }
+    // Separiamo titolari (ordinati 0..10) e panchina
+    const titolariRighe = data.filter((row: any) => row.posizione === "TITOLARE");
+    const panchinaRighe = data.filter((row: any) => row.posizione === "PANCHINA");
 
-    const titolari = data.filter((row: any) => row.posizione === 'TITOLARE').map((row: any) => row.giocatore_id);
-    const panchina = data.filter((row: any) => row.posizione === 'PANCHINA').map((row: any) => row.giocatore_id);
+    const titolari = Array(11).fill(null);
+    titolariRighe.forEach((row: any) => {
+      if (row.ordine >= 0 && row.ordine < 11) {
+        titolari[row.ordine] = row.giocatore_id;
+      }
+    });
+
+    const panchina = panchinaRighe.map((row: any) => row.giocatore_id);
 
     return NextResponse.json(
-      { schema: '4-4-2', titolari, panchina },
+      { schema: "4-4-2", titolari, panchina },
       {
+        status: 200,
         headers: {
-          'Cache-Control': 'no-store, max-age=0, must-revalidate',
+          "Cache-Control": "no-store, no-cache, must-revalidate",
         },
       }
     );
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message || "Errore del server" }, { status: 500 });
   }
 }
 
-// POST: Salva la nuova formazione
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { titolari, panchina } = body;
+    const { titolari, panchina } = body; // Array di UUID di giocatori
 
-    // 1. Cancella i record esistenti filtrando sulla colonna "posizione"
+    // Prepara tutte le righe da inserire/aggiornare
+    const righeDaInserire: any[] = [];
+
+    // Titolari con il loro ordine esatto da 0 a 10
+    titolari.forEach((giocatoreId: string | null, index: number) => {
+      if (giocatoreId) {
+        righeDaInserire.push({
+          giocatore_id: giocatoreId,
+          posizione: "TITOLARE",
+          ordine: index,
+        });
+      }
+    });
+
+    // Panchinari con ordine progressivo
+    panchina.forEach((giocatoreId: string, index: number) => {
+      if (giocatoreId) {
+        righeDaInserire.push({
+          giocatore_id: giocatoreId,
+          posizione: "PANCHINA",
+          ordine: index,
+        });
+      }
+    });
+
+    // Svuota la tabella attuale e reinserisce le nuove posizioni corrette
     const { error: deleteError } = await supabase
-      .from('mia_formazione')
+      .from("mia_formazione")
       .delete()
-      .in('posizione', ['TITOLARE', 'PANCHINA']);
+      .neq("ordine", -999);
 
     if (deleteError) {
-      console.error('Errore svuotamento tabella:', deleteError);
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+      console.error("Errore pulizia mia_formazione:", deleteError);
     }
 
-    // 2. Mappa i titolari validi
-    const titolariRows = (titolari || [])
-      .filter((id: any): id is string => typeof id === 'string' && isUUID(id))
-      .map((id: string, idx: number) => ({
-        giocatore_id: id,
-        posizione: 'TITOLARE',
-        ordine: idx,
-      }));
+    const { data, error: insertError } = await supabase
+      .from("mia_formazione")
+      .insert(righeDaInserire)
+      .select();
 
-    // 3. Mappa la panchina valida
-    const panchinaRows = (panchina || [])
-      .filter((id: any): id is string => typeof id === 'string' && isUUID(id))
-      .map((id: string, idx: number) => ({
-        giocatore_id: id,
-        posizione: 'PANCHINA',
-        ordine: idx,
-      }));
-
-    const rowsToInsert = [...titolariRows, ...panchinaRows];
-
-    // 4. Inserisci i nuovi dati
-    if (rowsToInsert.length > 0) {
-      const { error: insertError } = await supabase
-        .from('mia_formazione')
-        .insert(rowsToInsert);
-
-      if (insertError) {
-        console.error('Errore inserimento Supabase:', insertError);
-        return NextResponse.json({ error: insertError.message }, { status: 500 });
-      }
+    if (insertError) {
+      console.error("Errore inserimento mia_formazione:", insertError);
+      return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, count: data?.length });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message || "Errore salvataggio server" }, { status: 500 });
   }
 }
