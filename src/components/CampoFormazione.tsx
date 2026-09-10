@@ -13,11 +13,26 @@ export interface GiocatoreRosa {
 interface Props {
   rosa: GiocatoreRosa[];
   formazioneDB: { giocatore_id: string; posizione: string }[];
+  moduloDB?: string;
   onApriGestioneRosa: () => void;
   onSalvaPosizione: (giocatoreId: string, posizione: string) => void;
+  onSalvaModulo: (modulo: string) => void;
 }
 
 const SCHEMI: Record<string, { id: string; etichetta: string; linea: "POR" | "DIF" | "CEN" | "ATT" }[]> = {
+  "4-4-2": [
+    { id: "POR", etichetta: "POR", linea: "POR" },
+    { id: "TD", etichetta: "TD", linea: "DIF" },
+    { id: "DC1", etichetta: "DC", linea: "DIF" },
+    { id: "DC2", etichetta: "DC", linea: "DIF" },
+    { id: "TS", etichetta: "TS", linea: "DIF" },
+    { id: "CLD", etichetta: "CLD", linea: "CEN" },
+    { id: "CC1", etichetta: "CC", linea: "CEN" },
+    { id: "CC2", etichetta: "CC", linea: "CEN" },
+    { id: "CLS", etichetta: "CLS", linea: "CEN" },
+    { id: "ATT1", etichetta: "ATT", linea: "ATT" },
+    { id: "ATT2", etichetta: "ATT", linea: "ATT" },
+  ],
   "4-3-3": [
     { id: "POR", etichetta: "POR", linea: "POR" },
     { id: "TD", etichetta: "TD", linea: "DIF" },
@@ -31,7 +46,7 @@ const SCHEMI: Record<string, { id: string; etichetta: string; linea: "POR" | "DI
     { id: "PC", etichetta: "PC", linea: "ATT" },
     { id: "AS", etichetta: "AS", linea: "ATT" },
   ],
-  "4-4-2": [
+  "4-5-1": [
     { id: "POR", etichetta: "POR", linea: "POR" },
     { id: "TD", etichetta: "TD", linea: "DIF" },
     { id: "DC1", etichetta: "DC", linea: "DIF" },
@@ -39,10 +54,10 @@ const SCHEMI: Record<string, { id: string; etichetta: string; linea: "POR" | "DI
     { id: "TS", etichetta: "TS", linea: "DIF" },
     { id: "CLD", etichetta: "CLD", linea: "CEN" },
     { id: "CC1", etichetta: "CC", linea: "CEN" },
+    { id: "MED", etichetta: "MED", linea: "CEN" },
     { id: "CC2", etichetta: "CC", linea: "CEN" },
     { id: "CLS", etichetta: "CLS", linea: "CEN" },
-    { id: "ATT1", etichetta: "ATT", linea: "ATT" },
-    { id: "ATT2", etichetta: "ATT", linea: "ATT" },
+    { id: "PC", etichetta: "PC", linea: "ATT" },
   ],
   "3-5-2": [
     { id: "POR", etichetta: "POR", linea: "POR" },
@@ -57,34 +72,84 @@ const SCHEMI: Record<string, { id: string; etichetta: string; linea: "POR" | "DI
     { id: "ATT1", etichetta: "ATT", linea: "ATT" },
     { id: "ATT2", etichetta: "ATT", linea: "ATT" },
   ],
+  "3-4-3": [
+    { id: "POR", etichetta: "POR", linea: "POR" },
+    { id: "DC1", etichetta: "DC", linea: "DIF" },
+    { id: "DC2", etichetta: "DC", linea: "DIF" },
+    { id: "DC3", etichetta: "DC", linea: "DIF" },
+    { id: "ED", etichetta: "E", linea: "CEN" },
+    { id: "CC1", etichetta: "CC", linea: "CEN" },
+    { id: "CC2", etichetta: "CC", linea: "CEN" },
+    { id: "ES", etichetta: "E", linea: "CEN" },
+    { id: "AD", etichetta: "AD", linea: "ATT" },
+    { id: "PC", etichetta: "PC", linea: "ATT" },
+    { id: "AS", etichetta: "AS", linea: "ATT" },
+  ],
+  "5-3-2": [
+    { id: "POR", etichetta: "POR", linea: "POR" },
+    { id: "DD", etichetta: "DD", linea: "DIF" },
+    { id: "DC1", etichetta: "DC", linea: "DIF" },
+    { id: "DC2", etichetta: "DC", linea: "DIF" },
+    { id: "DC3", etichetta: "DC", linea: "DIF" },
+    { id: "DS", etichetta: "DS", linea: "DIF" },
+    { id: "CC1", etichetta: "CC", linea: "CEN" },
+    { id: "MED", etichetta: "MED", linea: "CEN" },
+    { id: "CC2", etichetta: "CC", linea: "CEN" },
+    { id: "ATT1", etichetta: "ATT", linea: "ATT" },
+    { id: "ATT2", etichetta: "ATT", linea: "ATT" },
+  ],
+  "5-4-1": [
+    { id: "POR", etichetta: "POR", linea: "POR" },
+    { id: "DD", etichetta: "DD", linea: "DIF" },
+    { id: "DC1", etichetta: "DC", linea: "DIF" },
+    { id: "DC2", etichetta: "DC", linea: "DIF" },
+    { id: "DC3", etichetta: "DC", linea: "DIF" },
+    { id: "DS", etichetta: "DS", linea: "DIF" },
+    { id: "CLD", etichetta: "CLD", linea: "CEN" },
+    { id: "CC1", etichetta: "CC", linea: "CEN" },
+    { id: "CC2", etichetta: "CC", linea: "CEN" },
+    { id: "CLS", etichetta: "CLS", linea: "CEN" },
+    { id: "PC", etichetta: "PC", linea: "ATT" },
+  ],
 };
 
 export default function CampoFormazione({
   rosa,
   formazioneDB,
+  moduloDB = "4-4-2",
   onApriGestioneRosa,
   onSalvaPosizione,
+  onSalvaModulo,
 }: Props) {
-  const [modulo, setModulo] = useState<string>("4-3-3");
+  const [modulo, setModulo] = useState<string>(moduloDB);
   const [titolari, setTitolari] = useState<Record<string, string>>({});
 
-  // Sincronizza lo stato locale con Supabase all'avvio / aggiornamento
+  useEffect(() => {
+    if (moduloDB) {
+      setModulo(moduloDB);
+    }
+  }, [moduloDB]);
+
   useEffect(() => {
     const nuovaMappa: Record<string, string> = {};
     formazioneDB.forEach((item) => {
-      if (item.posizione && item.posizione !== "PANCHINA") {
+      if (item.posizione && item.posizione !== "PANCHINA" && !item.posizione.startsWith("SCHEMA_")) {
         nuovaMappa[item.posizione] = item.giocatore_id;
       }
     });
     setTitolari(nuovaMappa);
   }, [formazioneDB]);
 
-  const posizioni = SCHEMI[modulo] || SCHEMI["4-3-3"];
+  const handleCambioModulo = (nuovoModulo: string) => {
+    setModulo(nuovoModulo);
+    onSalvaModulo(nuovoModulo);
+  };
+
+  const posizioni = SCHEMI[modulo] || SCHEMI["4-4-2"];
 
   const assegnaGiocatoreAPosizione = (posId: string, giocatoreId: string) => {
     const nuovaMappa = { ...titolari };
 
-    // Se il giocatore era già titolare in un altro ruolo, libera quella posizione
     Object.keys(nuovaMappa).forEach((k) => {
       if (nuovaMappa[k] === giocatoreId) {
         delete nuovaMappa[k];
@@ -103,7 +168,6 @@ export default function CampoFormazione({
     setTitolari(nuovaMappa);
   };
 
-  // Gestione Drag & Drop
   const handleDragStart = (e: React.DragEvent, giocatoreId: string) => {
     e.dataTransfer.setData("text/plain", giocatoreId);
   };
@@ -189,12 +253,16 @@ export default function CampoFormazione({
           <label className="text-xs text-slate-400 font-semibold uppercase">Modulo:</label>
           <select
             value={modulo}
-            onChange={(e) => setModulo(e.target.value)}
+            onChange={(e) => handleCambioModulo(e.target.value)}
             className="bg-slate-950 border border-slate-700 text-white text-sm font-bold rounded-lg px-3 py-1.5 focus:outline-none focus:border-amber-500"
           >
             <option value="4-3-3">4-3-3</option>
             <option value="4-4-2">4-4-2</option>
+            <option value="4-5-1">4-5-1</option>
             <option value="3-5-2">3-5-2</option>
+            <option value="3-4-3">3-4-3</option>
+            <option value="5-3-2">5-3-2</option>
+            <option value="5-4-1">5-4-1</option>
           </select>
 
           <button
@@ -206,7 +274,6 @@ export default function CampoFormazione({
         </div>
       </div>
 
-      {/* CAMPO DA GIOCO */}
       <div className="relative w-full bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 border-4 border-slate-800 rounded-xl p-4 md:p-6 overflow-hidden shadow-2xl flex flex-col justify-between min-h-[440px]">
         <div className="absolute inset-x-0 top-1/2 h-0.5 bg-white/20 -translate-y-1/2 pointer-events-none" />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border-2 border-white/20 rounded-full pointer-events-none" />
@@ -221,7 +288,6 @@ export default function CampoFormazione({
         </div>
       </div>
 
-      {/* PANCHINA DRAGGABILE */}
       <div className="mt-6 border-t border-slate-800 pt-4">
         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
           🪑 Panchina (Trascina il giocatore nel ruolo sul campo)

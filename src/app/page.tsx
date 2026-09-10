@@ -8,6 +8,8 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+const GUID_MODULO = "00000000-0000-0000-0000-000000000000";
+
 interface GiocatoreProbabile {
   id: string;
   nome_completo: string;
@@ -41,6 +43,7 @@ export default function ProbabiliFormazioniPage() {
 
   const [rosaGiocatori, setRosaGiocatori] = useState<GiocatoreRosa[]>([]);
   const [formazioneDB, setFormazioneDB] = useState<{ giocatore_id: string; posizione: string }[]>([]);
+  const [moduloDB, setModuloDB] = useState<string>("4-4-2");
   const [tuttiGiocatoriMap, setTuttiGiocatoriMap] = useState<Map<string, GiocatoreProbabile>>(new Map());
 
   useEffect(() => {
@@ -102,9 +105,17 @@ export default function ProbabiliFormazioniPage() {
       return;
     }
 
-    setFormazioneDB(miaFormData);
+    // Estrae l'eventuale riga con lo SCHEMA salvato
+    const rigaModulo = miaFormData.find((r: any) => r.giocatore_id === GUID_MODULO);
+    if (rigaModulo && rigaModulo.posizione.startsWith("SCHEMA_")) {
+      setModuloDB(rigaModulo.posizione.replace("SCHEMA_", ""));
+    }
 
-    const idsGiocatori = miaFormData.map((row: any) => row.giocatore_id).filter(Boolean);
+    // Filtra via la riga del modulo per la gestione rosa
+    const righeGiocatori = miaFormData.filter((r: any) => r.giocatore_id !== GUID_MODULO);
+    setFormazioneDB(righeGiocatori);
+
+    const idsGiocatori = righeGiocatori.map((row: any) => row.giocatore_id).filter(Boolean);
     if (idsGiocatori.length === 0) {
       setRosaGiocatori([]);
       return;
@@ -129,7 +140,7 @@ export default function ProbabiliFormazioniPage() {
 
     const listaRosa: GiocatoreRosa[] = [];
 
-    miaFormData.forEach((row: any) => {
+    righeGiocatori.forEach((row: any) => {
       const gId = row.giocatore_id;
       const anag = mappaAnagrafica.get(gId);
       const infoScraper = mapGiocatori.get(gId);
@@ -146,6 +157,18 @@ export default function ProbabiliFormazioniPage() {
     });
 
     setRosaGiocatori(listaRosa);
+  }
+
+  async function salvaModulo(modulo: string) {
+    setModuloDB(modulo);
+    await supabase.from("mia_formazione").upsert(
+      {
+        giocatore_id: GUID_MODULO,
+        posizione: `SCHEMA_${modulo}`,
+        ordine: -1,
+      },
+      { onConflict: "giocatore_id" }
+    );
   }
 
   async function salvaPosizioneGiocatore(giocatoreId: string, posizione: string) {
@@ -270,7 +293,6 @@ export default function ProbabiliFormazioniPage() {
       </header>
 
       <div className="max-w-6xl mx-auto space-y-10">
-        
         {isGestioneOpen && (
           <div className="p-4 bg-slate-900 border border-amber-500/50 rounded-xl space-y-4">
             <h3 className="text-sm font-semibold text-amber-300 uppercase tracking-wider">
@@ -326,15 +348,15 @@ export default function ProbabiliFormazioniPage() {
           </div>
         )}
 
-        {/* CAMPO FORMAZIONE */}
         <CampoFormazione
           rosa={rosaGiocatori}
           formazioneDB={formazioneDB}
+          moduloDB={moduloDB}
           onApriGestioneRosa={() => setIsGestioneOpen(!isGestioneOpen)}
           onSalvaPosizione={salvaPosizioneGiocatore}
+          onSalvaModulo={salvaModulo}
         />
 
-        {/* SCHEDE PARTITE */}
         <div className="grid grid-cols-1 gap-8">
           {partite.map((partita) => (
             <div
@@ -360,7 +382,6 @@ export default function ProbabiliFormazioniPage() {
             </div>
           ))}
         </div>
-
       </div>
     </main>
   );
