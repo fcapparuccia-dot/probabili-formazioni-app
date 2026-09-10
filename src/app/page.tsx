@@ -208,7 +208,6 @@ export default function ProbabiliFormazioniPage() {
     );
   }
 
-  // Mappatura dei dati per farli leggere al CampoFormazione
   const rosaFormatta = rosaGiocatori.map((g) => ({
     id: g.id,
     nome: g.nome_completo,
@@ -228,85 +227,69 @@ export default function ProbabiliFormazioniPage() {
 
       <div className="max-w-6xl mx-auto space-y-10">
         
-        {/* ================= SEZIONE LA MIA FORMAZIONE ================= */}
-        <section className="bg-slate-900 border-2 border-amber-500/50 rounded-2xl p-5 shadow-xl">
-          <div className="flex flex-wrap items-center justify-between mb-4 border-b border-slate-800 pb-3 gap-2">
-            <h2 className="text-2xl font-bold text-amber-400 flex items-center gap-2">
-              ⭐ La Mia Formazione
-            </h2>
-            <button
-              onClick={() => setIsGestioneOpen(!isGestioneOpen)}
-              className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-sm px-4 py-2 rounded-lg transition-all shadow-md"
-            >
-              {isGestioneOpen ? "✖ Chiudi Gestione" : "✏️ Gestisci Rosa"}
-            </button>
-          </div>
+        {/* PANNELLO DI RICERCA / GESTIONE ROSA QUANDO APERTO */}
+        {isGestioneOpen && (
+          <div className="p-4 bg-slate-900 border border-amber-500/50 rounded-xl space-y-4">
+            <h3 className="text-sm font-semibold text-amber-300 uppercase tracking-wider">
+              Aggiungi Giocatore alla tua Rosa
+            </h3>
+            
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Cerca un giocatore per nome (es: Lautaro, Barella)..."
+                value={searchQuery}
+                onChange={(e) => cercaGiocatori(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+              />
 
-          {/* PANNELLO DI INSERIMENTO / RICERCA */}
-          {isGestioneOpen && (
-            <div className="mb-6 p-4 bg-slate-950 rounded-xl border border-amber-500/30 space-y-4">
-              <h3 className="text-sm font-semibold text-amber-300 uppercase tracking-wider">
-                Aggiungi Giocatore alla tua Rosa
-              </h3>
-              
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Cerca un giocatore per nome (es: Lautaro, Barella)..."
-                  value={searchQuery}
-                  onChange={(e) => cercaGiocatori(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
-                />
-
-                {searchResults.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-h-60 overflow-y-auto">
-                    {searchResults.map((g) => (
-                      <div
-                        key={g.id}
-                        className="flex justify-between items-center px-4 py-2.5 border-b border-slate-800/80 hover:bg-slate-800/50"
-                      >
-                        <div>
-                          <span className="font-semibold text-white">{g.nome_completo}</span>
-                          <span className="text-xs text-slate-400 ml-2">({g.squadra})</span>
-                        </div>
-                        <button
-                          onClick={() => aggiungiGiocatore(g.id)}
-                          className="bg-amber-600 hover:bg-amber-500 text-white text-xs px-2.5 py-1 rounded font-bold"
-                        >
-                          + Aggiungi alla Rosa
-                        </button>
+              {searchResults.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-h-60 overflow-y-auto">
+                  {searchResults.map((g) => (
+                    <div
+                      key={g.id}
+                      className="flex justify-between items-center px-4 py-2.5 border-b border-slate-800/80 hover:bg-slate-800/50"
+                    >
+                      <div>
+                        <span className="font-semibold text-white">{g.nome_completo}</span>
+                        <span className="text-xs text-slate-400 ml-2">({g.squadra})</span>
                       </div>
-                    ))}
-                  </div>
-                )}
-                {isSearching && (
-                  <p className="text-xs text-slate-400 mt-1">Ricerca in corso...</p>
-                )}
-              </div>
-
-              {/* LISTA GIOCATORI IN ROSA CON POSSIBILITÀ DI ELIMINARE */}
-              {rosaFormatta.length > 0 && (
-                <div className="mt-4 border-t border-slate-800 pt-3">
-                  <h4 className="text-xs font-semibold text-slate-400 mb-2">Giocatori in rosa ({rosaFormatta.length}):</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {rosaFormatta.map((g) => (
-                      <span key={g.id} className="inline-flex items-center gap-1 text-xs bg-slate-800 text-slate-200 px-2 py-1 rounded border border-slate-700">
-                        {g.nome}
-                        <button onClick={() => rimuoviGiocatore(g.id)} className="text-red-400 hover:text-red-300 font-bold ml-1">✕</button>
-                      </span>
-                    ))}
-                  </div>
+                      <button
+                        onClick={() => aggiungiGiocatore(g.id)}
+                        className="bg-amber-600 hover:bg-amber-500 text-white text-xs px-2.5 py-1 rounded font-bold"
+                      >
+                        + Aggiungi alla Rosa
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
+              {isSearching && (
+                <p className="text-xs text-slate-400 mt-1">Ricerca in corso...</p>
+              )}
             </div>
-          )}
 
-          {/* VISTA CAMPO DI CALCIO */}
-          <CampoFormazione
-            rosa={rosaFormatta as any}
-            onApriGestioneRosa={() => setIsGestioneOpen(!isGestioneOpen)}
-          />
-        </section>
+            {rosaFormatta.length > 0 && (
+              <div className="mt-4 border-t border-slate-800 pt-3">
+                <h4 className="text-xs font-semibold text-slate-400 mb-2">Giocatori in rosa ({rosaFormatta.length}):</h4>
+                <div className="flex flex-wrap gap-2">
+                  {rosaFormatta.map((g) => (
+                    <span key={g.id} className="inline-flex items-center gap-1 text-xs bg-slate-800 text-slate-200 px-2 py-1 rounded border border-slate-700">
+                      {g.nome}
+                      <button onClick={() => rimuoviGiocatore(g.id)} className="text-red-400 hover:text-red-300 font-bold ml-1">✕</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* COMPONENTE CAMPO CHE CONTIENE GIÀ IL BOX ⭐ LA MIA FORMAZIONE */}
+        <CampoFormazione
+          rosaCompleta={rosaFormatta as any}
+          onApriGestioneRosa={() => setIsGestioneOpen(!isGestioneOpen)}
+        />
 
         {/* ================= SCHEDE PARTITE ================= */}
         <div className="grid grid-cols-1 gap-8">
