@@ -23,20 +23,23 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const schemaRow = data?.find((row: { posizione?: string }) => row.posizione && row.posizione.startsWith("SCHEMA_"));
-    const schemaSalvato = schemaRow ? schemaRow.posizione.replace("SCHEMA_", "") : "4-4-2";
+    const rows: any[] = data || [];
+    const schemaRow = rows.find((row) => row.posizione && String(row.posizione).startsWith("SCHEMA_"));
+    const schemaSalvato = schemaRow ? String(schemaRow.posizione).replace("SCHEMA_", "") : "4-4-2";
 
-    const titolariRighe = data?.filter((row: { posizione?: string }) => row.posizione === "TITOLARE") || [];
-    const panchinaRighe = data?.filter((row: { posizione?: string }) => row.posizione === "PANCHINA") || [];
+    const titolariRighe = rows.filter((row) => row.posizione === "TITOLARE");
+    const panchinaRighe = rows.filter((row) => row.posizione === "PANCHINA");
 
     const titolari = Array(11).fill(null);
-    titolariRighe.forEach((row: { ordine: number; giocatore_id: string }) => {
-      if (row.ordine >= 0 && row.ordine < 11) {
+    titolariRighe.forEach((row) => {
+      if (row.ordine >= 0 && row.ordine < 11 && row.giocatore_id !== SCHEMA_UUID) {
         titolari[row.ordine] = row.giocatore_id;
       }
     });
 
-    const panchina = panchinaRighe.map((row: { giocatore_id: string }) => row.giocatore_id);
+    const panchina = panchinaRighe
+      .filter((row) => row.giocatore_id !== SCHEMA_UUID)
+      .map((row) => row.giocatore_id);
 
     return NextResponse.json(
       { schema: schemaSalvato, titolari, panchina },
@@ -47,9 +50,8 @@ export async function GET() {
         },
       }
     );
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : "Errore del server";
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || "Errore del server" }, { status: 500 });
   }
 }
 
@@ -58,13 +60,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { schema, titolari, panchina } = body;
 
-    interface RigaInsert {
-      giocatore_id: string;
-      posizione: string;
-      ordine: number;
-    }
-
-    const righeDaInserire: RigaInsert[] = [];
+    const righeDaInserire: any[] = [];
 
     if (schema) {
       righeDaInserire.push({
@@ -75,8 +71,8 @@ export async function POST(req: Request) {
     }
 
     if (Array.isArray(titolari)) {
-      titolari.forEach((giocatoreId: string | null, index: number) => {
-        if (giocatoreId) {
+      titolari.forEach((giocatoreId: any, index: number) => {
+        if (giocatoreId && giocatoreId !== SCHEMA_UUID) {
           righeDaInserire.push({
             giocatore_id: giocatoreId,
             posizione: "TITOLARE",
@@ -87,8 +83,8 @@ export async function POST(req: Request) {
     }
 
     if (Array.isArray(panchina)) {
-      panchina.forEach((giocatoreId: string | null, index: number) => {
-        if (giocatoreId) {
+      panchina.forEach((giocatoreId: any, index: number) => {
+        if (giocatoreId && giocatoreId !== SCHEMA_UUID) {
           righeDaInserire.push({
             giocatore_id: giocatoreId,
             posizione: "PANCHINA",
@@ -98,7 +94,16 @@ export async function POST(req: Request) {
       });
     }
 
-    await supabase.from("mia_formazione").delete().neq("ordine", -999);
+    // Se non ci sono righe valide da inserire, cancelliamo solo lo schema vecchio e preserviamo la rosa
+    if (righeDaInserire.length === 0) {
+      return NextResponse.json({ success: true, count: 0 });
+    }
+
+    // Svuota solo prima dell'inserimento confermato
+    const { error: deleteError } = await supabase.from("mia_formazione").delete().neq("ordine", -999);
+    if (deleteError) {
+      console.error("Errore durante delete:", deleteError);
+    }
 
     const { data, error: insertError } = await supabase
       .from("mia_formazione")
@@ -111,8 +116,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ success: true, count: data?.length });
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : "Errore server";
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || "Errore server" }, { status: 500 });
   }
 }
