@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import CampoFormazione from "@/components/CampoFormazione";
+import CampoFormazione, { GiocatoreRosa } from "@/components/CampoFormazione";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -34,12 +34,13 @@ export default function ProbabiliFormazioniPage() {
   const [partite, setPartite] = useState<Partita[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Gestione Modale e Ricerca Giocatori
   const [isGestioneOpen, setIsGestioneOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<GiocatoreDB[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [rosaGiocatori, setRosaGiocatori] = useState<GiocatoreProbabile[]>([]);
+
+  const [rosaGiocatori, setRosaGiocatori] = useState<GiocatoreRosa[]>([]);
+  const [formazioneDB, setFormazioneDB] = useState<{ giocatore_id: string; posizione: string }[]>([]);
   const [tuttiGiocatoriMap, setTuttiGiocatoriMap] = useState<Map<string, GiocatoreProbabile>>(new Map());
 
   useEffect(() => {
@@ -85,34 +86,30 @@ export default function ProbabiliFormazioniPage() {
     });
 
     setTuttiGiocatoriMap(map);
-
-    const partiteRaggruppate = creaStrutturaPartite(tuttiGiocatori);
-    setPartite(partiteRaggruppate);
-
+    setPartite(creaStrutturaPartite(tuttiGiocatori));
     await ricaricaMiaFormazione(map);
     setLoading(false);
   }
 
   async function ricaricaMiaFormazione(mapGiocatori = tuttiGiocatoriMap) {
-    // 1. Legge le righe da mia_formazione
     const { data: miaFormData, error: errRosa } = await supabase
       .from("mia_formazione")
       .select("id, giocatore_id, posizione, ordine")
       .order("ordine", { ascending: true });
 
-    if (errRosa) {
-      console.error("Errore lettura mia_formazione:", errRosa.message || errRosa);
+    if (errRosa || !miaFormData) {
+      console.error("Errore lettura mia_formazione:", errRosa);
       return;
     }
 
-    if (!miaFormData || miaFormData.length === 0) {
+    setFormazioneDB(miaFormData);
+
+    const idsGiocatori = miaFormData.map((row: any) => row.giocatore_id).filter(Boolean);
+    if (idsGiocatori.length === 0) {
       setRosaGiocatori([]);
       return;
     }
 
-    const idsGiocatori = miaFormData.map((row: any) => row.giocatore_id).filter(Boolean);
-
-    // 2. Recupera i dati anagrafici dei giocatori
     const { data: infoGiocatori, error: errGioc } = await supabase
       .from("giocatori")
       .select(`
@@ -123,17 +120,14 @@ export default function ProbabiliFormazioniPage() {
       .in("id", idsGiocatori);
 
     if (errGioc) {
-      console.error("Errore lettura giocatori:", errGioc.message || errGioc);
+      console.error("Errore lettura giocatori:", errGioc);
       return;
     }
 
     const mappaAnagrafica = new Map<string, any>();
-    infoGiocatori?.forEach((g: any) => {
-      mappaAnagrafica.set(g.id, g);
-    });
+    infoGiocatori?.forEach((g: any) => mappaAnagrafica.set(g.id, g));
 
-    // 3. Associa i dati senza fare affidamento alla foreign key automatica
-    const listaRosa: GiocatoreProbabile[] = [];
+    const listaRosa: GiocatoreRosa[] = [];
 
     miaFormData.forEach((row: any) => {
       const gId = row.giocatore_id;
@@ -143,7 +137,7 @@ export default function ProbabiliFormazioniPage() {
       if (anag) {
         listaRosa.push({
           id: gId,
-          nome_completo: anag.nome_completo || "Sconosciuto",
+          nome: anag.nome_completo || "Sconosciuto",
           squadra: anag.squadre?.nome || "",
           percentuale: infoScraper ? infoScraper.percentuale : 0,
           stato: infoScraper ? infoScraper.stato : "panchina",
@@ -152,6 +146,26 @@ export default function ProbabiliFormazioniPage() {
     });
 
     setRosaGiocatori(listaRosa);
+  }
+
+  async function salvaPosizioneGiocatore(giocatoreId: string, posizione: string) {
+    const { error } = await supabase.from("mia_formazione").upsert(
+      {
+        giocatore_id: giocatoreId,
+        posizione: posizione,
+      },
+      { onConflict: "giocatore_id" }
+    );
+
+    if (error) {
+      console.error("Errore salvataggio posizione:", error);
+    } else {
+      setFormazioneDB((prev) =>
+        prev.map((item) =>
+          item.giocatore_id === giocatoreId ? { ...item, posizione } : item
+        )
+      );
+    }
   }
 
   function creaStrutturaPartite(giocatori: GiocatoreProbabile[]): Partita[] {
@@ -205,7 +219,6 @@ export default function ProbabiliFormazioniPage() {
   }
 
   async function aggiungiGiocatore(giocatoreId: string) {
-    // Calcola l'ordine corretto leggendo direttamente la lunghezza corrente
     const prossimoOrdine = rosaGiocatori.length + 1;
 
     const { error } = await supabase.from("mia_formazione").upsert(
@@ -218,8 +231,7 @@ export default function ProbabiliFormazioniPage() {
     );
 
     if (error) {
-      console.error("Errore aggiunta giocatore in mia_formazione:", error.message || error);
-      alert("Errore nell'inserimento del giocatore: " + error.message);
+      alert("Errore nell'inserimento: " + error.message);
       return;
     }
 
@@ -234,11 +246,7 @@ export default function ProbabiliFormazioniPage() {
       .delete()
       .eq("giocatore_id", giocatoreId);
 
-    if (error) {
-      console.error("Errore rimozione giocatore:", error.message || error);
-      return;
-    }
-
+    if (error) return;
     await ricaricaMiaFormazione();
   }
 
@@ -249,12 +257,6 @@ export default function ProbabiliFormazioniPage() {
       </div>
     );
   }
-
-  const rosaFormatta = rosaGiocatori.map((g) => ({
-    id: g.id,
-    nome: g.nome_completo,
-    squadra: g.squadra,
-  }));
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
@@ -269,7 +271,6 @@ export default function ProbabiliFormazioniPage() {
 
       <div className="max-w-6xl mx-auto space-y-10">
         
-        {/* PANNELLO DI RICERCA / GESTIONE ROSA QUANDO APERTO */}
         {isGestioneOpen && (
           <div className="p-4 bg-slate-900 border border-amber-500/50 rounded-xl space-y-4">
             <h3 className="text-sm font-semibold text-amber-300 uppercase tracking-wider">
@@ -306,18 +307,16 @@ export default function ProbabiliFormazioniPage() {
                   ))}
                 </div>
               )}
-              {isSearching && (
-                <p className="text-xs text-slate-400 mt-1">Ricerca in corso...</p>
-              )}
+              {isSearching && <p className="text-xs text-slate-400 mt-1">Ricerca in corso...</p>}
             </div>
 
-            {rosaFormatta.length > 0 && (
+            {rosaGiocatori.length > 0 && (
               <div className="mt-4 border-t border-slate-800 pt-3">
-                <h4 className="text-xs font-semibold text-slate-400 mb-2">Giocatori in rosa ({rosaFormatta.length}):</h4>
+                <h4 className="text-xs font-semibold text-slate-400 mb-2">Giocatori in rosa ({rosaGiocatori.length}):</h4>
                 <div className="flex flex-wrap gap-2">
-                  {rosaFormatta.map((g) => (
-                    <span key={g.id} className="inline-flex items-center gap-1 text-xs bg-slate-800 text-slate-200 px-2 py-1 rounded border border-slate-700">
-                      {g.nome}
+                  {rosaGiocatori.map((g) => (
+                    <span key={g.id} className="inline-flex items-center gap-1.5 text-xs bg-slate-800 text-slate-200 px-2.5 py-1 rounded border border-slate-700">
+                      {g.nome} ({g.percentuale}%)
                       <button onClick={() => rimuoviGiocatore(g.id)} className="text-red-400 hover:text-red-300 font-bold ml-1">✕</button>
                     </span>
                   ))}
@@ -329,11 +328,13 @@ export default function ProbabiliFormazioniPage() {
 
         {/* CAMPO FORMAZIONE */}
         <CampoFormazione
-          rosa={rosaFormatta as any}
+          rosa={rosaGiocatori}
+          formazioneDB={formazioneDB}
           onApriGestioneRosa={() => setIsGestioneOpen(!isGestioneOpen)}
+          onSalvaPosizione={salvaPosizioneGiocatore}
         />
 
-        {/* ================= SCHEDE PARTITE ================= */}
+        {/* SCHEDE PARTITE */}
         <div className="grid grid-cols-1 gap-8">
           {partite.map((partita) => (
             <div
@@ -353,14 +354,8 @@ export default function ProbabiliFormazioniPage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
-                <ColonnaSquadra
-                  squadraNome={partita.squadraCasa}
-                  giocatori={partita.giocatoriCasa}
-                />
-                <ColonnaSquadra
-                  squadraNome={partita.squadraOspite}
-                  giocatori={partita.giocatoriOspite}
-                />
+                <ColonnaSquadra squadraNome={partita.squadraCasa} giocatori={partita.giocatoriCasa} />
+                <ColonnaSquadra squadraNome={partita.squadraOspite} giocatori={partita.giocatoriOspite} />
               </div>
             </div>
           ))}
@@ -371,12 +366,7 @@ export default function ProbabiliFormazioniPage() {
   );
 }
 
-function ColonnaSquadra({
-  giocatori,
-}: {
-  squadraNome: string;
-  giocatori: GiocatoreProbabile[];
-}) {
+function ColonnaSquadra({ giocatori }: { squadraNome: string; giocatori: GiocatoreProbabile[] }) {
   const titolari = giocatori.filter((g) => g.stato === "titolare");
   const panchina = giocatori.filter((g) => g.stato === "panchina");
   const indisponibili = giocatori.filter((g) => g.stato === "indisponibile");
@@ -389,10 +379,7 @@ function ColonnaSquadra({
         </h4>
         <div className="space-y-1.5">
           {titolari.map((g) => (
-            <div
-              key={g.id}
-              className="flex justify-between items-center text-sm py-1 border-b border-slate-800/50"
-            >
+            <div key={g.id} className="flex justify-between items-center text-sm py-1 border-b border-slate-800/50">
               <span className="font-medium text-slate-200">{g.nome_completo}</span>
               <BadgePercentuale perc={g.percentuale} />
             </div>
@@ -407,10 +394,7 @@ function ColonnaSquadra({
           </h4>
           <div className="space-y-1.5">
             {panchina.map((g) => (
-              <div
-                key={g.id}
-                className="flex justify-between items-center text-xs py-1 border-b border-slate-800/30 text-slate-400"
-              >
+              <div key={g.id} className="flex justify-between items-center text-xs py-1 border-b border-slate-800/30 text-slate-400">
                 <span>{g.nome_completo}</span>
                 <BadgePercentuale perc={g.percentuale} />
               </div>
@@ -443,9 +427,5 @@ function BadgePercentuale({ perc }: { perc: number }) {
     colore = "bg-amber-500/20 text-amber-400 border-amber-500/30";
   }
 
-  return (
-    <span className={`text-xs font-bold px-2 py-0.5 rounded border ${colore}`}>
-      {perc}%
-    </span>
-  );
+  return <span className={`text-xs font-bold px-2 py-0.5 rounded border ${colore}`}>{perc}%</span>;
 }
