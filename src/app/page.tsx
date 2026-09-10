@@ -32,10 +32,6 @@ interface GiocatoreDB {
 
 export default function ProbabiliFormazioniPage() {
   const [partite, setPartite] = useState<Partita[]>([]);
-  const [miaFormazione, setMiaFormazione] = useState<{
-    titolari: GiocatoreProbabile[];
-    panchina: GiocatoreProbabile[];
-  }>({ titolari: [], panchina: [] });
   const [loading, setLoading] = useState(true);
 
   // Gestione Modale e Ricerca Giocatori
@@ -43,6 +39,7 @@ export default function ProbabiliFormazioniPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<GiocatoreDB[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [rosaGiocatori, setRosaGiocatori] = useState<GiocatoreProbabile[]>([]);
   const [tuttiGiocatoriMap, setTuttiGiocatoriMap] = useState<Map<string, GiocatoreProbabile>>(new Map());
 
   useEffect(() => {
@@ -112,8 +109,7 @@ export default function ProbabiliFormazioniPage() {
       .order("ordine", { ascending: true });
 
     if (miaFormData) {
-      const titolari: GiocatoreProbabile[] = [];
-      const panchina: GiocatoreProbabile[] = [];
+      const listaRosa: GiocatoreProbabile[] = [];
 
       miaFormData.forEach((row: any) => {
         if (!row.giocatori) return;
@@ -121,22 +117,16 @@ export default function ProbabiliFormazioniPage() {
         const gId = row.giocatori.id;
         const infoScraper = mapGiocatori.get(gId);
 
-        const gObj: GiocatoreProbabile = {
+        listaRosa.push({
           id: gId,
           nome_completo: row.giocatori.nome_completo || "Sconosciuto",
           squadra: row.giocatori.squadre?.nome || "",
           percentuale: infoScraper ? infoScraper.percentuale : 0,
           stato: infoScraper ? infoScraper.stato : "panchina",
-        };
-
-        if (row.posizione === "TITOLARE") {
-          titolari.push(gObj);
-        } else {
-          panchina.push(gObj);
-        }
+        });
       });
 
-      setMiaFormazione({ titolari, panchina });
+      setRosaGiocatori(listaRosa);
     }
   }
 
@@ -190,14 +180,12 @@ export default function ProbabiliFormazioniPage() {
     setIsSearching(false);
   }
 
-  async function aggiungiGiocatore(giocatoreId: string, posizione: "TITOLARE" | "PANCHINA") {
-    const ordine = posizione === "PANCHINA" ? miaFormazione.panchina.length + 1 : 0;
-
+  async function aggiungiGiocatore(giocatoreId: string) {
     await supabase.from("mia_formazione").upsert(
       {
         giocatore_id: giocatoreId,
-        posizione: posizione,
-        ordine: ordine,
+        posizione: "PANCHINA",
+        ordine: rosaGiocatori.length + 1,
       },
       { onConflict: "giocatore_id" }
     );
@@ -220,8 +208,8 @@ export default function ProbabiliFormazioniPage() {
     );
   }
 
-  // Adattiamo la rosa al formato atteso da CampoFormazione
-  const rosaFormatta = [...miaFormazione.titolari, ...miaFormazione.panchina].map((g) => ({
+  // Mappatura dei dati per farli leggere al CampoFormazione
+  const rosaFormatta = rosaGiocatori.map((g) => ({
     id: g.id,
     nome: g.nome_completo,
     squadra: g.squadra,
@@ -281,14 +269,12 @@ export default function ProbabiliFormazioniPage() {
                           <span className="font-semibold text-white">{g.nome_completo}</span>
                           <span className="text-xs text-slate-400 ml-2">({g.squadra})</span>
                         </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => aggiungiGiocatore(g.id, "PANCHINA")}
-                            className="bg-amber-600 hover:bg-amber-500 text-white text-xs px-2.5 py-1 rounded font-bold"
-                          >
-                            + Aggiungi alla Rosa
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => aggiungiGiocatore(g.id)}
+                          className="bg-amber-600 hover:bg-amber-500 text-white text-xs px-2.5 py-1 rounded font-bold"
+                        >
+                          + Aggiungi alla Rosa
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -317,7 +303,7 @@ export default function ProbabiliFormazioniPage() {
 
           {/* VISTA CAMPO DI CALCIO */}
           <CampoFormazione
-            rosa={rosaFormatta as any}
+            rosaCompleta={rosaFormatta as any}
             onApriGestioneRosa={() => setIsGestioneOpen(!isGestioneOpen)}
           />
         </section>
@@ -361,7 +347,6 @@ export default function ProbabiliFormazioniPage() {
 }
 
 function ColonnaSquadra({
-  squadraNome,
   giocatori,
 }: {
   squadraNome: string;
