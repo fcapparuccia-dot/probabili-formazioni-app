@@ -113,6 +113,16 @@ const SCHEMI: Record<string, { id: string; etichetta: string; linea: "POR" | "DI
   ],
 };
 
+const getColorePercentuale = (perc: number) => {
+  if (perc >= 70) {
+    return "bg-emerald-950/90 text-emerald-400 border-emerald-500/50";
+  }
+  if (perc >= 45) {
+    return "bg-amber-950/90 text-amber-400 border-amber-500/50";
+  }
+  return "bg-rose-950/90 text-rose-400 border-rose-500/50";
+};
+
 export default function CampoFormazione({
   rosa,
   formazioneDB,
@@ -247,7 +257,7 @@ export default function CampoFormazione({
                 <span className="text-[13px] sm:text-[14px] font-extrabold text-white bg-slate-950/95 px-1.5 sm:px-2 py-0.5 rounded border border-emerald-500/50 shadow truncate w-full text-center">
                   {gioc.nome}
                 </span>
-                <span className="text-[11px] sm:text-[12px] font-extrabold text-amber-400 bg-slate-900/95 px-1.5 py-0.2 rounded mt-0.5">
+                <span className={`text-[11px] sm:text-[12px] font-extrabold px-1.5 py-0.5 rounded border mt-0.5 ${getColorePercentuale(gioc.percentuale)}`}>
                   {gioc.percentuale}%
                 </span>
               </div>
@@ -324,7 +334,7 @@ export default function CampoFormazione({
                 }`}
               >
                 <span>{g.nome} ({g.squadra})</span>
-                <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/30">
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${getColorePercentuale(g.percentuale)}`}>
                   {g.percentuale}%
                 </span>
               </div>
