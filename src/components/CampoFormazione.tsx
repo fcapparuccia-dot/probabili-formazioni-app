@@ -209,7 +209,7 @@ export default function CampoFormazione({
   const att = posizioni.filter((p) => p.linea === "ATT");
 
   const renderLinea = (lineaPosizioni: typeof posizioni) => (
-    <div className="flex justify-around items-center w-full my-1 sm:my-2 px-1">
+    <div className="flex justify-around items-center w-full my-1 sm:my-2 px-0.5">
       {lineaPosizioni.map((pos) => {
         const selezionatoId = titolari[pos.id];
         const gioc = selezionatoId ? getGiocatoreById(selezionatoId) : null;
@@ -219,17 +219,17 @@ export default function CampoFormazione({
             key={pos.id}
             onDragOver={handleDragOver}
             onDrop={(e) => handleDrop(e, pos.id)}
-            className="flex flex-col items-center group cursor-pointer max-w-[22%] sm:max-w-none"
+            className="flex flex-col items-center group cursor-pointer max-w-[24%] sm:max-w-none"
           >
-            <div className="w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-slate-900/90 border-2 border-emerald-400/80 rounded-full flex flex-col justify-center items-center p-0.5 sm:p-1 text-center shadow-lg relative transition hover:scale-105 hover:border-emerald-300">
-              <span className="text-[8px] sm:text-[10px] font-extrabold text-amber-400 uppercase tracking-tighter">
+            <div className="w-13 h-13 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-slate-900/90 border-2 border-emerald-400/80 rounded-full flex flex-col justify-center items-center p-0.5 sm:p-1 text-center shadow-lg relative transition hover:scale-105 hover:border-emerald-300">
+              <span className="text-[9px] sm:text-[10px] font-extrabold text-amber-400 uppercase tracking-tighter">
                 {pos.etichetta}
               </span>
 
               <select
                 value={selezionatoId || ""}
                 onChange={(e) => assegnaGiocatoreAPosizione(pos.id, e.target.value)}
-                className="w-full bg-transparent text-[9px] sm:text-[11px] font-bold text-white text-center focus:outline-none cursor-pointer truncate px-0.5"
+                className="w-full bg-transparent text-[10px] sm:text-[11px] font-bold text-white text-center focus:outline-none cursor-pointer truncate px-0.5"
               >
                 <option value="" className="bg-slate-900 text-slate-400">
                   + Scegli
@@ -243,11 +243,11 @@ export default function CampoFormazione({
             </div>
 
             {gioc && (
-              <div className="mt-1 flex flex-col items-center max-w-[75px] sm:max-w-[100px]">
-                <span className="text-[8px] sm:text-[10px] font-bold text-white bg-slate-950/90 px-1 sm:px-2 py-0.5 rounded border border-emerald-500/40 shadow truncate w-full text-center">
+              <div className="mt-1 flex flex-col items-center max-w-[85px] sm:max-w-[110px]">
+                <span className="text-[10px] sm:text-[11px] font-bold text-white bg-slate-950/90 px-1.5 sm:px-2 py-0.5 rounded border border-emerald-500/40 shadow truncate w-full text-center">
                   {gioc.nome}
                 </span>
-                <span className="text-[7px] sm:text-[9px] font-bold text-amber-400 bg-slate-900/90 px-1 py-0.2 rounded mt-0.5">
+                <span className="text-[8px] sm:text-[10px] font-bold text-amber-400 bg-slate-900/90 px-1.5 py-0.2 rounded mt-0.5">
                   {gioc.percentuale}%
                 </span>
               </div>
