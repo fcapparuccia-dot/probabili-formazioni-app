@@ -143,6 +143,23 @@ export default function CampoFormazione({
   const handleCambioModulo = (nuovoModulo: string) => {
     setModulo(nuovoModulo);
     onSalvaModulo(nuovoModulo);
+
+    const nuovePosizioni = SCHEMI[nuovoModulo] || SCHEMI["4-4-2"];
+    const giocatoriSchierati = Object.values(titolari);
+    const nuovaMappa: Record<string, string> = {};
+
+    nuovePosizioni.forEach((pos, index) => {
+      if (giocatoriSchierati[index]) {
+        nuovaMappa[pos.id] = giocatoriSchierati[index];
+        onSalvaPosizione(giocatoriSchierati[index], pos.id);
+      }
+    });
+
+    giocatoriSchierati.slice(nuovePosizioni.length).forEach((gId) => {
+      onSalvaPosizione(gId, "PANCHINA");
+    });
+
+    setTitolari(nuovaMappa);
   };
 
   const posizioni = SCHEMI[modulo] || SCHEMI["4-4-2"];
