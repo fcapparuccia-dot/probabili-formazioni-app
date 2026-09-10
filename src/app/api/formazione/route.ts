@@ -1,111 +1,138 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-// DISABILITA LA CACHE NEXT.JS SUL BACKEND
-export const dynamic = 'force-dynamic';
+// DISABILITA TOTALMENTE LA CACHE DI NEXT.JS / VERCEL PER QUESTA ROTTA
+export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
-// Helper per verificare se una stringa è un UUID valido
-function isUUID(str: string) {
-  const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  return regex.test(str);
-}
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// GET: Recupera la formazione salvata
 export async function GET() {
   try {
     const { data, error } = await supabase
-      .from('mia_formazione')
-      .select('*')
-      .order('ordine', { ascending: true });
+      .from("mia_formazione")
+      .select("*")
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (error) {
-      console.error('Errore lettura Supabase:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    if (!data || data.length === 0) {
+      console.error("Errore recupero Supabase:", error);
       return NextResponse.json(
-        { titolari: [], panchina: [], schema: '4-4-2' },
+        { error: error.message },
         {
+          status: 500,
           headers: {
-            'Cache-Control': 'no-store, max-age=0, must-revalidate',
+            "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+            Pragma: "no-cache",
+            Expires: "0",
           },
         }
       );
     }
 
-    const titolari = data.filter((row: any) => row.posizione === 'TITOLARE').map((row: any) => row.giocatore_id);
-    const panchina = data.filter((row: any) => row.posizione === 'PANCHINA').map((row: any) => row.giocatore_id);
+    return NextResponse.json(data || { schema: "4-4-2", titolari: [], panchina: [] }, {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message || "Errore del server" },
+      {
+        status: 500,
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      }
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { schema, titolari, panchina } = body;
+
+    // Recupera l'ultimo record per aggiornarlo, oppure ne inserisce uno nuovo
+    const { data: existing } = await supabase
+      .from("mia_formazione")
+      .select("id")
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let result;
+    if (existing?.id) {
+      result = await supabase
+        .from("mia_formazione")
+        .update({
+          schema,
+          titolari,
+          panchina,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existing.id)
+        .select();
+    } else {
+      result = await supabase
+        .from("mia_formazione")
+        .insert([
+          {
+            schema,
+            titolari,
+            panchina,
+            updated_at: new Date().toISOString(),
+          },
+        ])
+        .select();
+    }
+
+    if (result.error) {
+      console.error("Errore salvataggio Supabase:", result.error);
+      return NextResponse.json(
+        { error: result.error.message },
+        {
+          status: 500,
+          headers: {
+            "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+            Pragma: "no-cache",
+            Expires: "0",
+          },
+        }
+      );
+    }
 
     return NextResponse.json(
-      { schema: '4-4-2', titolari, panchina },
+      { success: true, data: result.data },
       {
+        status: 200,
         headers: {
-          'Cache-Control': 'no-store, max-age=0, must-revalidate',
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
         },
       }
     );
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
-  }
-}
-
-// POST: Salva la nuova formazione
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { titolari, panchina } = body;
-
-    // 1. Cancella i record esistenti filtrando sulla colonna "posizione"
-    const { error: deleteError } = await supabase
-      .from('mia_formazione')
-      .delete()
-      .in('posizione', ['TITOLARE', 'PANCHINA']);
-
-    if (deleteError) {
-      console.error('Errore svuotamento tabella:', deleteError);
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
-    }
-
-    // 2. Mappa i titolari validi
-    const titolariRows = (titolari || [])
-      .filter((id: any): id is string => typeof id === 'string' && isUUID(id))
-      .map((id: string, idx: number) => ({
-        giocatore_id: id,
-        posizione: 'TITOLARE',
-        ordine: idx,
-      }));
-
-    // 3. Mappa la panchina valida
-    const panchinaRows = (panchina || [])
-      .filter((id: any): id is string => typeof id === 'string' && isUUID(id))
-      .map((id: string, idx: number) => ({
-        giocatore_id: id,
-        posizione: 'PANCHINA',
-        ordine: idx,
-      }));
-
-    const rowsToInsert = [...titolariRows, ...panchinaRows];
-
-    // 4. Inserisci i nuovi dati
-    if (rowsToInsert.length > 0) {
-      const { error: insertError } = await supabase
-        .from('mia_formazione')
-        .insert(rowsToInsert);
-
-      if (insertError) {
-        console.error('Errore inserimento Supabase:', insertError);
-        return NextResponse.json({ error: insertError.message }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message || "Errore salvataggio server" },
+      {
+        status: 500,
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
       }
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    );
   }
 }
