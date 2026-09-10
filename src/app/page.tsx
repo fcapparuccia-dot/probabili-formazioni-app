@@ -94,45 +94,64 @@ export default function ProbabiliFormazioniPage() {
   }
 
   async function ricaricaMiaFormazione(mapGiocatori = tuttiGiocatoriMap) {
-    const { data: miaFormData, error } = await supabase
+    // 1. Legge le righe da mia_formazione
+    const { data: miaFormData, error: errRosa } = await supabase
       .from("mia_formazione")
-      .select(`
-        id,
-        posizione,
-        ordine,
-        giocatori (
-          id,
-          nome_completo,
-          squadre ( nome )
-        )
-      `)
+      .select("id, giocatore_id, posizione, ordine")
       .order("ordine", { ascending: true });
 
-    if (error) {
-      console.error("Errore lettura mia_formazione:", error.message || error);
+    if (errRosa) {
+      console.error("Errore lettura mia_formazione:", errRosa.message || errRosa);
       return;
     }
 
-    if (miaFormData) {
-      const listaRosa: GiocatoreProbabile[] = [];
+    if (!miaFormData || miaFormData.length === 0) {
+      setRosaGiocatori([]);
+      return;
+    }
 
-      miaFormData.forEach((row: any) => {
-        if (!row.giocatori) return;
+    const idsGiocatori = miaFormData.map((row: any) => row.giocatore_id).filter(Boolean);
 
-        const gId = row.giocatori.id;
-        const infoScraper = mapGiocatori.get(gId);
+    // 2. Recupera i dati anagrafici dei giocatori
+    const { data: infoGiocatori, error: errGioc } = await supabase
+      .from("giocatori")
+      .select(`
+        id,
+        nome_completo,
+        squadre ( nome )
+      `)
+      .in("id", idsGiocatori);
 
+    if (errGioc) {
+      console.error("Errore lettura giocatori:", errGioc.message || errGioc);
+      return;
+    }
+
+    const mappaAnagrafica = new Map<string, any>();
+    infoGiocatori?.forEach((g: any) => {
+      mappaAnagrafica.set(g.id, g);
+    });
+
+    // 3. Associa i dati senza fare affidamento alla foreign key automatica
+    const listaRosa: GiocatoreProbabile[] = [];
+
+    miaFormData.forEach((row: any) => {
+      const gId = row.giocatore_id;
+      const anag = mappaAnagrafica.get(gId);
+      const infoScraper = mapGiocatori.get(gId);
+
+      if (anag) {
         listaRosa.push({
           id: gId,
-          nome_completo: row.giocatori.nome_completo || "Sconosciuto",
-          squadra: row.giocatori.squadre?.nome || "",
+          nome_completo: anag.nome_completo || "Sconosciuto",
+          squadra: anag.squadre?.nome || "",
           percentuale: infoScraper ? infoScraper.percentuale : 0,
           stato: infoScraper ? infoScraper.stato : "panchina",
         });
-      });
+      }
+    });
 
-      setRosaGiocatori(listaRosa);
-    }
+    setRosaGiocatori(listaRosa);
   }
 
   function creaStrutturaPartite(giocatori: GiocatoreProbabile[]): Partita[] {
@@ -186,11 +205,14 @@ export default function ProbabiliFormazioniPage() {
   }
 
   async function aggiungiGiocatore(giocatoreId: string) {
+    // Calcola l'ordine corretto leggendo direttamente la lunghezza corrente
+    const prossimoOrdine = rosaGiocatori.length + 1;
+
     const { error } = await supabase.from("mia_formazione").upsert(
       {
         giocatore_id: giocatoreId,
         posizione: "PANCHINA",
-        ordine: rosaGiocatori.length + 1,
+        ordine: prossimoOrdine,
       },
       { onConflict: "giocatore_id" }
     );
