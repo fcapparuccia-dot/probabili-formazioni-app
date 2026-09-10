@@ -56,6 +56,11 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
         if (res.ok) {
           const saved = await res.json();
 
+          // Se il server restituisce uno schema salvato, lo impostiamo
+          if (saved?.schema) {
+            setSchema(saved.schema);
+          }
+
           if (saved && (saved.titolari?.length > 0 || saved.panchina?.length > 0)) {
             const titolariRic: SlotCampo[] = (saved.titolari || []).map((id: string | null) =>
               id ? mappaRosa.get(id) || null : null
@@ -113,13 +118,14 @@ export default function CampoFormazione({ rosa: rosaIniziale }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          schema: nuovoSchema,
           titolari: titolariIds,
           panchina: panchinaIds,
         }),
       });
     } catch (err) {
       console.error("Errore salvataggio server:", err);
-    } finally {
+    } fontally {
       setTimeout(() => setIsSaving(false), 300);
     }
   };

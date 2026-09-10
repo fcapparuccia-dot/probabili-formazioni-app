@@ -9,6 +9,9 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// UUID neutro per la riga speciale dello SCHEMA
+const SCHEMA_UUID = "00000000-0000-0000-0000-000000000000";
+
 export async function GET() {
   try {
     const { data, error } = await supabase
@@ -21,7 +24,11 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Separiamo titolari (ordinati 0..10) e panchina
+    // Cerchiamo la riga dello schema (dove posizione comincia con SCHEMA_)
+    const schemaRow = data.find((row: any) => row.posizione && row.posizione.startsWith("SCHEMA_"));
+    const schemaSalvato = schemaRow ? schemaRow.posizione.replace("SCHEMA_", "") : "4-4-2";
+
+    // Separiamo titolari e panchina
     const titolariRighe = data.filter((row: any) => row.posizione === "TITOLARE");
     const panchinaRighe = data.filter((row: any) => row.posizione === "PANCHINA");
 
@@ -35,7 +42,7 @@ export async function GET() {
     const panchina = panchinaRighe.map((row: any) => row.giocatore_id);
 
     return NextResponse.json(
-      { schema: "4-4-2", titolari, panchina },
+      { schema: schemaSalvato, titolari, panchina },
       {
         status: 200,
         headers: {
@@ -51,12 +58,20 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { titolari, panchina } = body; // Array di UUID di giocatori
+    const { schema, titolari, panchina } = body;
 
-    // Prepara tutte le righe da inserire/aggiornare
     const righeDaInserire: any[] = [];
 
-    // Titolari con il loro ordine esatto da 0 a 10
+    // Salva lo schema nel campo 'posizione' es: "SCHEMA_4-3-3"
+    if (schema) {
+      righeDaInserire.push({
+        giocatore_id: SCHEMA_UUID,
+        posizione: `SCHEMA_${schema}`,
+        ordine: -1,
+      });
+    }
+
+    // Titolari (0..10)
     titolari.forEach((giocatoreId: string | null, index: number) => {
       if (giocatoreId) {
         righeDaInserire.push({
@@ -67,7 +82,7 @@ export async function POST(request: Request) {
       }
     });
 
-    // Panchinari con ordine progressivo
+    // Panchina
     panchina.forEach((giocatoreId: string, index: number) => {
       if (giocatoreId) {
         righeDaInserire.push({
@@ -78,15 +93,8 @@ export async function POST(request: Request) {
       }
     });
 
-    // Svuota la tabella attuale e reinserisce le nuove posizioni corrette
-    const { error: deleteError } = await supabase
-      .from("mia_formazione")
-      .delete()
-      .neq("ordine", -999);
-
-    if (deleteError) {
-      console.error("Errore pulizia mia_formazione:", deleteError);
-    }
+    // Svuota e reinserisce
+    await supabase.from("mia_formazione").delete().neq("ordine", -999);
 
     const { data, error: insertError } = await supabase
       .from("mia_formazione")
@@ -94,12 +102,12 @@ export async function POST(request: Request) {
       .select();
 
     if (insertError) {
-      console.error("Errore inserimento mia_formazione:", insertError);
+      console.error("Errore inserimento Supabase:", insertError);
       return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, count: data?.length });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Errore salvataggio server" }, { status: 500 });
+    return NextResponse.json({ error: err.message || "Errore server" }, { status: 500 });
   }
 }
