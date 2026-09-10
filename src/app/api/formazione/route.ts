@@ -9,7 +9,6 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// UUID neutro valido per salvare il modulo/schema
 const SCHEMA_UUID = "00000000-0000-0000-0000-000000000000";
 
 export async function GET() {
@@ -25,15 +24,23 @@ export async function GET() {
     }
 
     const rows: any[] = data || [];
-    const schemaRow = rows.find((row) => row.posizione && String(row.posizione).startsWith("SCHEMA_"));
-    const schemaSalvato = schemaRow ? String(schemaRow.posizione).replace("SCHEMA_", "") : "4-4-2";
+    const schemaRow = rows.find(
+      (row) => row.posizione && String(row.posizione).startsWith("SCHEMA_")
+    );
+    const schemaSalvato = schemaRow
+      ? String(schemaRow.posizione).replace("SCHEMA_", "")
+      : "4-4-2";
 
     const titolariRighe = rows.filter((row) => row.posizione === "TITOLARE");
     const panchinaRighe = rows.filter((row) => row.posizione === "PANCHINA");
 
     const titolari = Array(11).fill(null);
     titolariRighe.forEach((row) => {
-      if (row.ordine >= 0 && row.ordine < 11 && row.giocatore_id !== SCHEMA_UUID) {
+      if (
+        row.ordine >= 0 &&
+        row.ordine < 11 &&
+        row.giocatore_id !== SCHEMA_UUID
+      ) {
         titolari[row.ordine] = row.giocatore_id;
       }
     });
@@ -52,7 +59,10 @@ export async function GET() {
       }
     );
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message || "Errore del server" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Errore del server" },
+      { status: 500 }
+    );
   }
 }
 
@@ -61,11 +71,8 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { schema, titolari, panchina } = body;
 
-    console.log("Dati ricevuti POST:", { schema, titolariCount: titolari?.length, panchinaCount: panchina?.length });
-
     const righeDaInserire: any[] = [];
 
-    // 1. Aggiungiamo lo schema se presente
     if (schema) {
       righeDaInserire.push({
         giocatore_id: SCHEMA_UUID,
@@ -74,7 +81,6 @@ export async function POST(req: Request) {
       });
     }
 
-    // 2. Aggiungiamo i titolari (filtriamo solo UUID o ID validi)
     if (Array.isArray(titolari)) {
       titolari.forEach((giocatoreId: any, index: number) => {
         if (giocatoreId && giocatoreId !== SCHEMA_UUID) {
@@ -87,7 +93,6 @@ export async function POST(req: Request) {
       });
     }
 
-    // 3. Aggiungiamo la panchina
     if (Array.isArray(panchina)) {
       panchina.forEach((giocatoreId: any, index: number) => {
         if (giocatoreId && giocatoreId !== SCHEMA_UUID) {
@@ -100,29 +105,34 @@ export async function POST(req: Request) {
       });
     }
 
-    if (righeDaInserire.length === 0) {
-      return NextResponse.json({ success: true, message: "Nessun dato inviato" });
+    // Rimuovi vecchie configurazioni dello schema
+    await supabase.from("mia_formazione").delete().eq("giocatore_id", SCHEMA_UUID);
+
+    if (righeDaInserire.length > 0) {
+      // Svuota titolari e panchina per aggiornare
+      await supabase.from("mia_formazione").delete().neq("giocatore_id", SCHEMA_UUID);
+
+      const { data, error: insertError } = await supabase
+        .from("mia_formazione")
+        .insert(righeDaInserire)
+        .select();
+
+      if (insertError) {
+        console.error("Errore inserimento Supabase:", insertError);
+        return NextResponse.json(
+          { error: insertError.message },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json({ success: true, count: data?.length });
     }
 
-    // Prova ad inserire le righe
-    const { data: insertData, error: insertError } = await supabase
-      .from("mia_formazione")
-      .insert(righeDaInserire)
-      .select();
-
-    if (insertError) {
-      console.error("ERRORE INSERIMENTO SUPABASE:", insertError);
-      return NextResponse.json(
-        { error: `Errore Supabase: ${insertError.message} (${insertError.details || insertError.code})` },
-        { status: 400 }
-      );
-    }
-
-    // Se l'inserimento è andato a buon fine, ripuliamo eventuali vecchie righe rimanenti non più aggiornate
-    // (senza svuotare preventivamente)
-    return NextResponse.json({ success: true, count: insertData?.length });
+    return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error("ERRORE SERVER POST:", err);
-    return NextResponse.json({ error: err?.message || "Errore server" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Errore server" },
+      { status: 500 }
+    );
   }
 }
