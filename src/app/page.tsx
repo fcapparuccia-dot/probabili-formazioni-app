@@ -77,11 +77,14 @@ export default function ProbabiliFormazioniPage() {
 
     pfData?.forEach((item: any) => {
       if (item.giocatori) {
-        const sqNome = item.giocatori.squadre?.nome || "SCONOSCIUTA";
+        // Normalizziamo il nome della squadra (maiuscolo e senza spazi) per il matching
+        const rawNome = item.giocatori.squadre?.nome || "SCONOSCIUTA";
+        const sqNome = rawNome.trim().toUpperCase();
+
         const gObj: GiocatoreProbabile = {
           id: item.giocatori.id,
           nome_completo: item.giocatori.nome_completo,
-          squadra: sqNome,
+          squadra: rawNome,
           percentuale: item.percentuale_titolarita,
           stato: item.stato,
         };
@@ -97,7 +100,7 @@ export default function ProbabiliFormazioniPage() {
 
     setTuttiGiocatoriMap(map);
 
-    // 2. Caricamento Partite Reali con Join Foreign Key esplicite su UUID
+    // 2. Caricamento Partite Reali
     const { data: partiteData, error: partiteError } = await supabase
       .from("partite")
       .select(`
@@ -109,18 +112,21 @@ export default function ProbabiliFormazioniPage() {
       .order("ordine", { ascending: true });
 
     if (partiteError) {
-      console.error("Errore caricamento partite:", partiteError);
+      console.error("Errore caricamento partite:", JSON.stringify(partiteError, null, 2));
     } else if (partiteData) {
       const listaPartiteFormattate: Partita[] = partiteData.map((p: any) => {
-        const casaNome = p.squadra_casa?.nome || "CASA";
-        const ospiteNome = p.squadra_trasferta?.nome || "TRASFERTA";
+        const casaNomeOriginale = p.squadra_casa?.nome || "CASA";
+        const ospiteNomeOriginale = p.squadra_trasferta?.nome || "TRASFERTA";
+
+        const casaKey = casaNomeOriginale.trim().toUpperCase();
+        const ospiteKey = ospiteNomeOriginale.trim().toUpperCase();
 
         return {
           id: p.id,
-          squadraCasa: casaNome,
-          squadraOspite: ospiteNome,
-          giocatoriCasa: giocatoriPerSquadra.get(casaNome) || [],
-          giocatoriOspite: giocatoriPerSquadra.get(ospiteNome) || [],
+          squadraCasa: casaNomeOriginale,
+          squadraOspite: ospiteNomeOriginale,
+          giocatoriCasa: giocatoriPerSquadra.get(casaKey) || [],
+          giocatoriOspite: giocatoriPerSquadra.get(ospiteKey) || [],
         };
       });
 
