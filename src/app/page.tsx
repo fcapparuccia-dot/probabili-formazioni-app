@@ -34,6 +34,7 @@ interface GiocatoreDB {
 
 export default function ProbabiliFormazioniPage() {
   const [partite, setPartite] = useState<Partita[]>([]);
+  const [partitaSelezionataId, setPartitaSelezionataId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [isGestioneOpen, setIsGestioneOpen] = useState(false);
@@ -53,7 +54,6 @@ export default function ProbabiliFormazioniPage() {
   async function caricaDati() {
     setLoading(true);
 
-    // 1. Caricamento Giocatori e Formazioni
     const { data: pfData, error: pfError } = await supabase
       .from("probabili_formazioni")
       .select(`
@@ -77,7 +77,6 @@ export default function ProbabiliFormazioniPage() {
 
     pfData?.forEach((item: any) => {
       if (item.giocatori) {
-        // Normalizziamo il nome della squadra (maiuscolo e senza spazi) per il matching
         const rawNome = item.giocatori.squadre?.nome || "SCONOSCIUTA";
         const sqNome = rawNome.trim().toUpperCase();
 
@@ -100,7 +99,6 @@ export default function ProbabiliFormazioniPage() {
 
     setTuttiGiocatoriMap(map);
 
-    // 2. Caricamento Partite e Squadre con query separate (Soluzione A)
     const [{ data: partiteData, error: partiteError }, { data: squadreData, error: squadreError }] = await Promise.all([
       supabase.from("partite").select("*").order("ordine", { ascending: true }),
       supabase.from("squadre").select("id, nome")
@@ -109,7 +107,6 @@ export default function ProbabiliFormazioniPage() {
     if (partiteError || squadreError) {
       console.error("Errore caricamento partite/squadre:", partiteError || squadreError);
     } else if (partiteData && squadreData) {
-      // Mappa ID squadra -> Nome squadra
       const mappaSquadre = new Map<string, string>();
       squadreData.forEach((s: any) => mappaSquadre.set(s.id, s.nome));
 
@@ -130,6 +127,9 @@ export default function ProbabiliFormazioniPage() {
       });
 
       setPartite(listaPartiteFormattate);
+      if (listaPartiteFormattate.length > 0) {
+        setPartitaSelezionataId(listaPartiteFormattate[0].id);
+      }
     }
 
     await ricaricaMiaFormazione(map);
@@ -301,6 +301,8 @@ export default function ProbabiliFormazioniPage() {
     );
   }
 
+  const partitaCorrente = partite.find((p) => p.id === partitaSelezionataId) || partite[0];
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
       <header className="max-w-6xl mx-auto mb-8 text-center border-b border-slate-800 pb-4">
@@ -312,7 +314,7 @@ export default function ProbabiliFormazioniPage() {
         </p>
       </header>
 
-      <div className="max-w-6xl mx-auto space-y-10">
+      <div className="max-w-6xl mx-auto space-y-8">
         {isGestioneOpen && (
           <div className="p-4 bg-slate-900 border border-amber-500/50 rounded-xl space-y-4">
             <h3 className="text-sm font-semibold text-amber-300 uppercase tracking-wider">
@@ -377,31 +379,56 @@ export default function ProbabiliFormazioniPage() {
           onSalvaModulo={salvaModulo}
         />
 
-        <div className="grid grid-cols-1 gap-8">
-          {partite.map((partita) => (
-            <div
-              key={partita.id}
-              className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg"
-            >
-              <div className="bg-slate-800/80 px-6 py-3 border-b border-slate-700 flex justify-between items-center">
-                <span className="font-black text-lg md:text-xl text-white tracking-wider">
-                  {partita.squadraCasa}
-                </span>
-                <span className="text-xs text-slate-400 font-semibold px-3 py-1 bg-slate-900 rounded-full border border-slate-700">
-                  VS
-                </span>
-                <span className="font-black text-lg md:text-xl text-white tracking-wider">
-                  {partita.squadraOspite}
-                </span>
-              </div>
+        {/* --- GRIGLIA PARTITE STILE FANTACALCIO.IT --- */}
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-xl">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+            {partite.map((p) => {
+              const isSelected = p.id === partitaCorrente?.id;
+              const casaTrigramma = p.squadraCasa.substring(0, 3).toUpperCase();
+              const ospiteTrigramma = p.squadraOspite.substring(0, 3).toUpperCase();
 
-              <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
-                <ColonnaSquadra squadraNome={partita.squadraCasa} giocatori={partita.giocatoriCasa} />
-                <ColonnaSquadra squadraNome={partita.squadraOspite} giocatori={partita.giocatoriOspite} />
-              </div>
-            </div>
-          ))}
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => setPartitaSelezionataId(p.id)}
+                  className={`p-3 rounded-xl border transition-all flex flex-col items-center justify-center cursor-pointer ${
+                    isSelected
+                      ? "bg-sky-500 text-white border-sky-400 shadow-lg shadow-sky-500/30 font-bold"
+                      : "bg-slate-800/80 hover:bg-slate-800 text-slate-300 border-slate-700/60"
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full px-2 text-sm font-black tracking-wider">
+                    <span>{casaTrigramma}</span>
+                    <span className={`text-[10px] font-normal mx-1 ${isSelected ? "text-sky-100" : "text-slate-500"}`}>vs</span>
+                    <span>{ospiteTrigramma}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
+
+        {/* --- DETTAGLIO PARTITA SELEZIONATA --- */}
+        {partitaCorrente && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg">
+            <div className="bg-slate-800/80 px-6 py-3 border-b border-slate-700 flex justify-between items-center">
+              <span className="font-black text-lg md:text-xl text-white tracking-wider">
+                {partitaCorrente.squadraCasa}
+              </span>
+              <span className="text-xs text-slate-400 font-semibold px-3 py-1 bg-slate-900 rounded-full border border-slate-700">
+                VS
+              </span>
+              <span className="font-black text-lg md:text-xl text-white tracking-wider">
+                {partitaCorrente.squadraOspite}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
+              <ColonnaSquadra squadraNome={partitaCorrente.squadraCasa} giocatori={partitaCorrente.giocatoriCasa} />
+              <ColonnaSquadra squadraNome={partitaCorrente.squadraOspite} giocatori={partitaCorrente.giocatoriOspite} />
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
