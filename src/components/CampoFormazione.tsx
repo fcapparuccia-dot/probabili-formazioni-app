@@ -308,10 +308,10 @@ export default function CampoFormazione({
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-36 sm:w-48 h-16 sm:h-20 border-t-2 border-x-2 border-white/20 pointer-events-none" />
 
         <div className="relative z-10 space-y-1 sm:space-y-2">
-          {renderLinea(att)}
-          {renderLinea(cen)}
-          {renderLinea(dif)}
           {renderLinea(por)}
+          {renderLinea(dif)}
+          {renderLinea(cen)}
+          {renderLinea(att)}
         </div>
       </div>
 
