@@ -53,7 +53,8 @@ export default function ProbabiliFormazioniPage() {
   async function caricaDati() {
     setLoading(true);
 
-    const { data: pfData, error } = await supabase
+    // 1. Caricamento Giocatori e Formazioni
+    const { data: pfData, error: pfError } = await supabase
       .from("probabili_formazioni")
       .select(`
         percentuale_titolarita,
@@ -65,31 +66,67 @@ export default function ProbabiliFormazioniPage() {
         )
       `);
 
-    if (error) {
-      console.error("Errore caricamento probabili formazioni:", error);
+    if (pfError) {
+      console.error("Errore caricamento probabili formazioni:", pfError);
       setLoading(false);
       return;
     }
 
-    const tuttiGiocatori: GiocatoreProbabile[] = [];
     const map = new Map<string, GiocatoreProbabile>();
+    const giocatoriPerSquadra = new Map<string, GiocatoreProbabile[]>();
 
     pfData?.forEach((item: any) => {
       if (item.giocatori) {
+        const sqNome = item.giocatori.squadre?.nome || "SCONOSCIUTA";
         const gObj: GiocatoreProbabile = {
           id: item.giocatori.id,
           nome_completo: item.giocatori.nome_completo,
-          squadra: item.giocatori.squadre?.nome || "SCONOSCIUTA",
+          squadra: sqNome,
           percentuale: item.percentuale_titolarita,
           stato: item.stato,
         };
-        tuttiGiocatori.push(gObj);
+        
         map.set(item.giocatori.id, gObj);
+
+        if (!giocatoriPerSquadra.has(sqNome)) {
+          giocatoriPerSquadra.set(sqNome, []);
+        }
+        giocatoriPerSquadra.get(sqNome)?.push(gObj);
       }
     });
 
     setTuttiGiocatoriMap(map);
-    setPartite(creaStrutturaPartite(tuttiGiocatori));
+
+    // 2. Caricamento Partite Reali dalla nuova tabella Supabase
+    const { data: partiteData, error: partiteError } = await supabase
+      .from("partite")
+      .select(`
+        id,
+        ordine,
+        squadra_casa:squadre!squadra_casa_id(nome),
+        squadra_trasferta:squadre!squadra_trasferta_id(nome)
+      `)
+      .order("ordine", { ascending: true });
+
+    if (partiteError) {
+      console.error("Errore caricamento partite:", partiteError);
+    } else if (partiteData) {
+      const listaPartiteFormattate: Partita[] = partiteData.map((p: any) => {
+        const casaNome = p.squadra_casa?.nome || "CASA";
+        const ospiteNome = p.squadra_trasferta?.nome || "TRASFERTA";
+
+        return {
+          id: p.id,
+          squadraCasa: casaNome,
+          squadraOspite: ospiteNome,
+          giocatoriCasa: giocatoriPerSquadra.get(casaNome) || [],
+          giocatoriOspite: giocatoriPerSquadra.get(ospiteNome) || [],
+        };
+      });
+
+      setPartite(listaPartiteFormattate);
+    }
+
     await ricaricaMiaFormazione(map);
     setLoading(false);
   }
@@ -105,13 +142,11 @@ export default function ProbabiliFormazioniPage() {
       return;
     }
 
-    // Estrae l'eventuale riga con lo SCHEMA salvato
     const rigaModulo = miaFormData.find((r: any) => r.giocatore_id === GUID_MODULO);
     if (rigaModulo && rigaModulo.posizione.startsWith("SCHEMA_")) {
       setModuloDB(rigaModulo.posizione.replace("SCHEMA_", ""));
     }
 
-    // Filtra via la riga del modulo per la gestione rosa
     const righeGiocatori = miaFormData.filter((r: any) => r.giocatore_id !== GUID_MODULO);
     setFormazioneDB(righeGiocatori);
 
@@ -189,26 +224,6 @@ export default function ProbabiliFormazioniPage() {
         )
       );
     }
-  }
-
-  function creaStrutturaPartite(giocatori: GiocatoreProbabile[]): Partita[] {
-    const squadrePresenti = Array.from(new Set(giocatori.map((g) => g.squadra)));
-    const listaPartite: Partita[] = [];
-
-    for (let i = 0; i < squadrePresenti.length; i += 2) {
-      const sqCasa = squadrePresenti[i];
-      const sqOspite = squadrePresenti[i + 1] || "RIPOSO";
-
-      listaPartite.push({
-        id: `${sqCasa}-${sqOspite}`,
-        squadraCasa: sqCasa,
-        squadraOspite: sqOspite,
-        giocatoriCasa: giocatori.filter((g) => g.squadra === sqCasa),
-        giocatoriOspite: giocatori.filter((g) => g.squadra === sqOspite),
-      });
-    }
-
-    return listaPartite;
   }
 
   async function cercaGiocatori(query: string) {
