@@ -30,7 +30,8 @@ MAPPING_SQUADRE = {
     "LAZIO": "LAZIO", "LECCE": "LECCE", "MILAN": "MILAN",
     "AC MILAN": "MILAN", "MONZA": "MONZA", "NAPOLI": "NAPOLI",
     "PARMA": "PARMA", "ROMA": "ROMA", "SASSUOLO": "SASSUOLO",
-    "TORINO": "TORINO", "UDINESE": "UDINESE", "VENEZIA": "VENEZIA"
+    "TORINO": "TORINO", "UDINESE": "UDINESE", "VENEZIA": "VENEZIA",
+    "VERONA": "VERONA", "HELLAS VERONA": "VERONA", "EMPOLI": "EMPOLI"
 }
 
 def pulisci_nome(nome_grezzo):
@@ -61,86 +62,85 @@ def scarica_probabili_formazioni():
 
     soup = BeautifulSoup(res.text, "html.parser")
     giocatori_estratti = []
-    partite_estratte = []
+    
+    # Selezioniamo tutte le schede squadra
+    schedes = soup.find_all(class_=re.compile(r"team-card|team-lineup|card-team|team", re.I))
+    if not schedes:
+        schedes = [soup]
 
-    # Estrazione Blocchi Match
-    blocchi_match = soup.find_all("div", class_=re.compile(r"match-card|match|card", re.I))
-    if not blocchi_match:
-        blocchi_match = [soup]
+    squadre_in_ordine = []
 
-    for blocco in blocchi_match:
-        schedes = blocco.find_all("div", class_=re.compile(r"team-card|team-lineup|team", re.I))
-        squadre_match = []
+    for scheda in schedes:
+        squadra_trovata = None
+        
+        for el in scheda.find_all(["a", "h2", "h3", "h4", "div", "span"]):
+            squadra_trovata = identifica_squadra(el.get_text())
+            if squadra_trovata:
+                break
 
-        for scheda in schedes:
-            player_items = scheda.find_all("li", class_=re.compile(r"player-item|player", re.I))
-            if not player_items:
+        if not squadra_trovata:
+            for img in scheda.find_all("img"):
+                info_img = f"{img.get('alt', '')} {img.get('title', '')} {img.get('src', '')}"
+                squadra_trovata = identifica_squadra(info_img)
+                if squadra_trovata:
+                    break
+
+        if not squadra_trovata:
+            continue
+
+        if not squadre_in_ordine or squadre_in_ordine[-1] != squadra_trovata:
+            squadre_in_ordine.append(squadra_trovata)
+
+        # Estrazione Giocatori
+        player_items = scheda.find_all(["li", "div"], class_=re.compile(r"player|item|row", re.I))
+        for item in player_items:
+            text_item = item.get_text(" ", strip=True)
+            if not text_item or len(text_item) < 3:
                 continue
 
-            squadra_trovata = None
-            header = scheda.find(class_=re.compile(r"team-name|team-link|header|title|name", re.I))
-            if header:
-                squadra_trovata = identifica_squadra(header.get_text())
+            stato = "titolare"
+            parent_text = ""
+            p = item.parent
+            while p and p != scheda:
+                parent_text += " " + p.get_text(" ", strip=True).upper()
+                p = p.parent
 
-            if not squadra_trovata:
-                imgs = scheda.find_all("img")
-                for img in imgs:
-                    info_img = f"{img.get('alt', '')} {img.get('title', '')} {img.get('src', '')}"
-                    squadra_trovata = identifica_squadra(info_img)
-                    if squadra_trovata:
-                        break
+            if "PANCHINA" in parent_text:
+                stato = "panchina"
+            elif any(k in parent_text for k in ["INDISPONIBILI", "SQUALIFICATI", "INFORTUNATI"]):
+                stato = "indisponibile"
 
-            if not squadra_trovata:
+            nome_elem = item.find(class_=re.compile(r"name|player|title", re.I))
+            nome_raw = nome_elem.get_text(strip=True) if nome_elem else text_item
+            nome_pulito = pulisci_nome(nome_raw)
+
+            if nome_pulito.upper() in MAPPING_SQUADRE or len(nome_pulito) < 2:
                 continue
 
-            if squadra_trovata not in squadre_match:
-                squadre_match.append(squadra_trovata)
+            perc = 0
+            match_perc = re.search(r'(\d{1,3})\s*%', text_item)
+            if match_perc:
+                perc = int(match_perc.group(1))
 
-            for item in player_items:
-                stato = "titolare"
-                parent_text = ""
-                p = item.parent
-                while p and p != scheda:
-                    parent_text += " " + p.get_text(" ", strip=True).upper()
-                    p = p.parent
-
-                if "PANCHINA" in parent_text:
-                    stato = "panchina"
-                elif any(k in parent_text for k in ["INDISPONIBILI", "SQUALIFICATI", "INFORTUNATI"]):
-                    stato = "indisponibile"
-
-                nome_elem = item.find(class_=re.compile(r"player-name|player-link|name", re.I))
-                nome_raw = nome_elem.get_text(strip=True) if nome_elem else item.get_text(" ", strip=True)
-                nome_pulito = pulisci_nome(nome_raw)
-
-                if nome_pulito.upper() in MAPPING_SQUADRE:
-                    continue
-
-                perc_elem = item.find(class_=re.compile(r"progress-value|percentage", re.I))
-                perc = 0
-                if perc_elem:
-                    match_perc = re.search(r'(\d{1,3})', perc_elem.get_text(strip=True))
-                    if match_perc:
-                        perc = int(match_perc.group(1))
-                else:
-                    match_perc = re.search(r'(\d{1,3})\s*%', item.get_text(strip=True))
-                    if match_perc:
-                        perc = int(match_perc.group(1))
-
-                if nome_pulito and len(nome_pulito) >= 2:
-                    giocatori_estratti.append({
-                        "nome": nome_pulito,
-                        "squadra": squadra_trovata,
-                        "stato": stato,
-                        "percentuale": perc
-                    })
-
-        # Se troviamo esattamente 2 squadre in un blocco match, le accoppiamo
-        if len(squadre_match) == 2:
-            partite_estratte.append({
-                "casa": squadre_match[0],
-                "trasferta": squadre_match[1]
+            giocatori_estratti.append({
+                "nome": nome_pulito,
+                "squadra": squadra_trovata,
+                "stato": stato,
+                "percentuale": perc
             })
+
+    # Ricostruzione precisa delle 10 partite accoppiando le squadre in ordine di apparizione
+    partite_estratte = []
+    squadre_uniche_ordine = []
+    for sq in squadre_in_ordine:
+        if sq not in squadre_uniche_ordine:
+            squadre_uniche_ordine.append(sq)
+
+    for i in range(0, len(squadre_uniche_ordine) - 1, 2):
+        partite_estratte.append({
+            "casa": squadre_uniche_ordine[i],
+            "trasferta": squadre_uniche_ordine[i+1]
+        })
 
     # Deduplicazione giocatori
     visti = set()
@@ -151,6 +151,7 @@ def scarica_probabili_formazioni():
             visti.add(chiave)
             giocatori_finali.append(g)
 
+    print(f"📊 Estratti {len(giocatori_finali)} giocatori e {len(partite_estratte)} partite.")
     return giocatori_finali, partite_estratte
 
 def salva_su_supabase(giocatori_data, partite_data):
@@ -168,11 +169,16 @@ def salva_su_supabase(giocatori_data, partite_data):
     squadre_db = supabase.table("squadre").select("id, nome").execute().data
     squadra_map = {s["nome"]: s["id"] for s in squadre_db}
 
-    # 2. Popolamento Partite Reali
+    # 2. Popolamento Partite
     if partite_data:
         print(f"🏟️ Inserimento di {len(partite_data)} partite della giornata...")
-        # Svuotiamo le vecchie partite per evitare conflitti o duplicati
-        supabase.table("partite").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+        
+        try:
+            existing = supabase.table("partite").select("id").execute().data
+            for row in existing:
+                supabase.table("partite").delete().eq("id", row["id"]).execute()
+        except Exception as e:
+            print(f"Errore pulizia partite: {e}")
         
         partite_payload = []
         for idx, p in enumerate(partite_data):
@@ -187,6 +193,7 @@ def salva_su_supabase(giocatori_data, partite_data):
         
         if partite_payload:
             supabase.table("partite").insert(partite_payload).execute()
+            print("✅ Partite salvate con successo!")
 
     # 3. Popolamento Giocatori
     giocatori_payload = []

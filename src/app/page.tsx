@@ -97,7 +97,7 @@ export default function ProbabiliFormazioniPage() {
 
     setTuttiGiocatoriMap(map);
 
-    // 2. Caricamento Partite Reali dalla nuova tabella Supabase
+    // 2. Caricamento Partite Reali con Join Foreign Key esplicite su UUID
     const { data: partiteData, error: partiteError } = await supabase
       .from("partite")
       .select(`
