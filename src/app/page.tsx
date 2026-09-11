@@ -100,23 +100,22 @@ export default function ProbabiliFormazioniPage() {
 
     setTuttiGiocatoriMap(map);
 
-    // 2. Caricamento Partite Reali
-    const { data: partiteData, error: partiteError } = await supabase
-      .from("partite")
-      .select(`
-        id,
-        ordine,
-        squadra_casa:squadre!squadra_casa_id(nome),
-        squadra_trasferta:squadre!squadra_trasferta_id(nome)
-      `)
-      .order("ordine", { ascending: true });
+    // 2. Caricamento Partite e Squadre con query separate (Soluzione A)
+    const [{ data: partiteData, error: partiteError }, { data: squadreData, error: squadreError }] = await Promise.all([
+      supabase.from("partite").select("*").order("ordine", { ascending: true }),
+      supabase.from("squadre").select("id, nome")
+    ]);
 
-    if (partiteError) {
-      console.error("Errore caricamento partite:", JSON.stringify(partiteError, null, 2));
-    } else if (partiteData) {
+    if (partiteError || squadreError) {
+      console.error("Errore caricamento partite/squadre:", partiteError || squadreError);
+    } else if (partiteData && squadreData) {
+      // Mappa ID squadra -> Nome squadra
+      const mappaSquadre = new Map<string, string>();
+      squadreData.forEach((s: any) => mappaSquadre.set(s.id, s.nome));
+
       const listaPartiteFormattate: Partita[] = partiteData.map((p: any) => {
-        const casaNomeOriginale = p.squadra_casa?.nome || "CASA";
-        const ospiteNomeOriginale = p.squadra_trasferta?.nome || "TRASFERTA";
+        const casaNomeOriginale = mappaSquadre.get(p.squadra_casa_id) || p.squadra_casa_id || p.squadra_casa || "CASA";
+        const ospiteNomeOriginale = mappaSquadre.get(p.squadra_trasferta_id) || p.squadra_trasferta_id || p.squadra_trasferta || "TRASFERTA";
 
         const casaKey = casaNomeOriginale.trim().toUpperCase();
         const ospiteKey = ospiteNomeOriginale.trim().toUpperCase();
