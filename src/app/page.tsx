@@ -42,6 +42,9 @@ export default function ProbabiliFormazioniPage() {
   const [searchResults, setSearchResults] = useState<GiocatoreDB[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
+  // Stato per la ricerca rapida del singolo giocatore con %
+  const [cercaGiocatorePartita, setCercaGiocatorePartita] = useState("");
+
   const [rosaGiocatori, setRosaGiocatori] = useState<GiocatoreRosa[]>([]);
   const [formazioneDB, setFormazioneDB] = useState<{ giocatore_id: string; posizione: string }[]>([]);
   const [moduloDB, setModuloDB] = useState<string>("4-4-2");
@@ -303,6 +306,13 @@ export default function ProbabiliFormazioniPage() {
 
   const partitaCorrente = partite.find((p) => p.id === partitaSelezionataId) || partite[0];
 
+  // Calcolo giocatori trovati per la ricerca rapida
+  const risultatiRicercaRapida = cercaGiocatorePartita.trim().length >= 2
+    ? Array.from(tuttiGiocatoriMap.values()).filter((g) =>
+        g.nome_completo.toLowerCase().includes(cercaGiocatorePartita.toLowerCase())
+      )
+    : [];
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
       <header className="max-w-6xl mx-auto mb-8 text-center border-b border-slate-800 pb-4">
@@ -379,8 +389,8 @@ export default function ProbabiliFormazioniPage() {
           onSalvaModulo={salvaModulo}
         />
 
-        {/* --- GRIGLIA PARTITE STILE FANTACALCIO.IT --- */}
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-xl">
+        {/* --- GRIGLIA PARTITE + RICERCA VELOCE GIOCATORE --- */}
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-xl space-y-4">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
             {partite.map((p) => {
               const isSelected = p.id === partitaCorrente?.id;
@@ -405,6 +415,50 @@ export default function ProbabiliFormazioniPage() {
                 </button>
               );
             })}
+          </div>
+
+          {/* --- CASELLA DI RICERCA GIOCATORE CON RISULTATI E % --- */}
+          <div className="pt-2 border-t border-slate-800">
+            <div className="flex flex-col md:flex-row md:items-center gap-3">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  placeholder="🔍 Cerca veloce un giocatore (es: Lautaro, Kean)..."
+                  value={cercaGiocatorePartita}
+                  onChange={(e) => setCercaGiocatorePartita(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                />
+                {cercaGiocatorePartita && (
+                  <button
+                    onClick={() => setCercaGiocatorePartita("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-white font-bold"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* Risultati in linea accanto/sotto la barra */}
+              {risultatiRicercaRapida.length > 0 && (
+                <div className="flex flex-wrap gap-2 items-center">
+                  {risultatiRicercaRapida.slice(0, 5).map((g) => (
+                    <div
+                      key={g.id}
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs"
+                    >
+                      <span className="font-semibold text-slate-100">{g.nome_completo}</span>
+                      <span className="text-[10px] text-slate-400 uppercase">({g.squadra})</span>
+                      <BadgePercentuale perc={g.percentuale} />
+                    </div>
+                  ))}
+                  {risultatiRicercaRapida.length > 5 && (
+                    <span className="text-xs text-slate-500 font-medium">
+                      +{risultatiRicercaRapida.length - 5} altri...
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
